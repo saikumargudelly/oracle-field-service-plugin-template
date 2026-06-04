@@ -153,6 +153,41 @@
       });
     };
 
+    // Get Device Geolocation Coordinates using HTML5 Geolocation API
+    this.getLocation = function() {
+      return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+          reject(new Error("Geolocation is not supported by this browser."));
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            resolve({
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude,
+              accuracy: position.coords.accuracy
+            });
+          },
+          (error) => {
+            let msg = "Unknown location error";
+            switch (error.code) {
+              case error.PERMISSION_DENIED:
+                msg = "Location permission denied.";
+                break;
+              case error.POSITION_UNAVAILABLE:
+                msg = "Location information is unavailable.";
+                break;
+              case error.TIMEOUT:
+                msg = "Location request timed out.";
+                break;
+            }
+            reject(new Error(msg));
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      });
+    };
+
     // Sync message helper (expects a reply, e.g. callProcedure)
     this._sendSyncMessage = function(data) {
       const id = data.callId || data.method;
@@ -194,7 +229,7 @@
     this._saveForm = function() {
       const data = {};
       document.querySelectorAll("input, textarea, select").forEach(el => {
-        if (el.id && !["SubmitBtn", "CancelBtn", "BarcodeResult"].includes(el.id)) {
+        if (el.id && !["SubmitBtn", "CancelBtn", "BarcodeResult", "LocationResult"].includes(el.id)) {
           data[el.id] = el.value;
         }
       });
@@ -242,9 +277,13 @@
           </div>
           <div class="section">
             <h3>Device Capabilities</h3>
-            <div class="item" style="gap: 10px; display: flex;">
+            <div class="item" style="gap: 10px; display: flex; margin-bottom: 8px;">
               <button id="ScanBtn" class="btn btn-primary" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Scan Code</button>
-              <input type="text" id="BarcodeResult" placeholder="Result" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
+              <input type="text" id="BarcodeResult" placeholder="Scan Result" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
+            </div>
+            <div class="item" style="gap: 10px; display: flex;">
+              <button id="LocBtn" class="btn btn-primary" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Get Location</button>
+              <input type="text" id="LocationResult" placeholder="Latitude, Longitude" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
             </div>
           </div>
         </div>
@@ -263,11 +302,24 @@
         }
       });
 
+      // Geolocation Button Click
+      document.getElementById("LocBtn")?.addEventListener("click", async () => {
+        try {
+          const result = await this.getLocation();
+          const input = document.getElementById("LocationResult");
+          if (input && result) {
+            input.value = `${result.latitude.toFixed(6)}, ${result.longitude.toFixed(6)} (±${Math.round(result.accuracy)}m)`;
+          }
+        } catch (error) {
+          alert(`Location failed: ${error.message}`);
+        }
+      });
+
       // Submit: Update OFS and Close
       document.getElementById("SubmitBtn")?.addEventListener("click", () => {
         const propertiesToUpdate = {};
         document.querySelectorAll("input, textarea, select").forEach(input => {
-          if (input.id && !["SubmitBtn", "CancelBtn", "BarcodeResult"].includes(input.id)) {
+          if (input.id && !["SubmitBtn", "CancelBtn", "BarcodeResult", "LocationResult"].includes(input.id)) {
             propertiesToUpdate[input.id.toUpperCase()] = input.value;
           }
         });

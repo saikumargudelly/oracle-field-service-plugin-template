@@ -16,6 +16,7 @@ This template comes pre-configured with essential capabilities required for ente
 * **📶 Online/Offline Connection State Management:** Native listeners track connection drops/restorations, displaying toast warnings and toggling network status badges.
 * **💾 Local Form State Persistence:** Automatically saves form values locally in the background (offline support) and restores inputs if the page resets or the session expires.
 * **📸 Native Code Scanner Integration:** Demonstrates device hardware integration by triggering the native device camera scanner via `callProcedure` ➡️ `scanBarcode`.
+* **📍 Device Geolocation Integration:** Demonstrates location services by retrieving precise device coordinates (Latitude, Longitude, and Accuracy) using the native HTML5 Geolocation API.
 
 ---
 
@@ -106,15 +107,24 @@ To deploy and test this plugin within your Oracle Field Service (OFS) environmen
 
 ---
 
-## 📸 Native Device Capabilities (Barcode Scanning)
+## 📸 Native Device Capabilities (Barcode Scanning & Geolocation)
 
-This template includes a built-in demonstration of native hardware integration. 
-- In [plugin.js](file:///Users/saikumargudelly/Downloads/OFSC_TEST_PLUGIN/plugin.js), the `scanBarcode` method uses OFSC's `callProcedure` to invoke the native mobile app's barcode reader:
+> [!NOTE]
+> **Complementary / Optional Features:** Barcode scanning and Geolocation are included as demonstrations of device hardware and location integrations. If your plugin does not require them, the associated UI elements, event listeners, and helper methods in `plugin.js` can be safely removed to keep the plugin footprint even smaller.
+
+### **1. Barcode Scanning (OFS API)**
+* In [plugin.js](file:///Users/saikumargudelly/Downloads/OFSC_TEST_PLUGIN/plugin.js), the `scanBarcode` method uses OFSC's `callProcedure` to invoke the native mobile app's barcode reader:
   ```javascript
   const scanResult = await this.scanBarcode();
   ```
-- Make sure to add `scanBarcode` to your plugin's **Allowed Procedures** in the OFS Administration screen.
+* Make sure to add `scanBarcode` to your plugin's **Allowed Procedures** in the OFS Administration screen.
 
+### **2. Geolocation (HTML5 API)**
+* To obtain the resource's current coordinates, the plugin uses standard HTML5 Geolocation (`navigator.geolocation.getCurrentPosition`) instead of custom RPC calls:
+  ```javascript
+  const coords = await this.getLocation();
+  ```
+* Ensure location services are enabled on the target device and that the web browser or OFS Mobile app has permission to access device location.
 
 ---
 
