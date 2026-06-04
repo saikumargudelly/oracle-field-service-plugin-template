@@ -96,24 +96,9 @@ To test this plugin within your Oracle Field Service environment:
 
 ## 🛠️ Customization Checklist for Developers
 
-Before deploying this template to production, you **MUST** customize the following areas:
+Before deploying this template, customize the following areas:
 
-### 1. Enforce Strict Origin Verification (Security)
-In `plugin.js`, uncomment the origin validation return statement in `_messageListener` to ensure your plugin *only* accepts messages from your verified Oracle Cloud domain:
-```javascript
-// plugin.js
-if (expectedOrigin && event.origin !== expectedOrigin) {
-  console.warn(`[OFSC Security Warning] Ignored message from: ${event.origin}`);
-  return; // <-- UNCOMMENT THIS IN PRODUCTION
-}
-```
-In `_sendPostMessage`, replace the fallback wildcard `*` with your specific OFS cloud domain:
-```javascript
-// plugin.js
-const origin = this._getOrigin(document.referrer) || "https://your-subdomain.fs.ocs.oraclecloud.com";
-```
-
-### 2. Map Form Fields to OFSC Properties
+### 1. Map Form Fields to OFSC Properties
 In the `SubmitBtn` click listener inside `plugin.js`, map your custom HTML form input IDs to standard or custom Oracle Field Service property keys. Note that OFSC custom property names are typically defined in **UPPERCASE** (e.g., `CUST_CONTACT_NAME`):
 ```javascript
 // Map form input values to OFSC property keys
@@ -123,9 +108,9 @@ const propertiesToUpdate = {
 };
 ```
 
-### 3. Handle Cross-Origin Iframe Storage
+### 2. Handle Cross-Origin Iframe Storage
 Since this plugin runs in a cross-origin iframe, browser features like Safari's **Intelligent Tracking Prevention (ITP)** and Chrome's third-party cookie restrictions will block `localStorage` operations. 
-- In production, implement a fallback strategy (such as checking if storage is available, using cookie fallback, or saving state in-memory) to handle cases where `localStorage.js` throws storage exceptions.
+- Implement a fallback strategy (such as checking if storage is available, using cookie fallback, or saving state in-memory) to handle cases where `localStorage.js` throws storage exceptions.
 
 ---
 
