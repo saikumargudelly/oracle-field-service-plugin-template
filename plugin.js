@@ -14,12 +14,26 @@
     this._pendingRequests = new Map();
     this._apiTimeout = 30000;
 
-    // Bootstrap: Listeners & 'ready' signal
+    // Bootstrap: Listeners, ready signal, & offline restore
     this.init = function(pluginName) {
       this.tag = pluginName;
       this.storage = window.OFSC_TS_STORAGE_1;
       
       window.addEventListener("message", this._messageListener.bind(this), false);
+      
+      // Connection listeners
+      window.addEventListener("online", () => {
+        this.showToast("🟢 Connection restored", "success");
+        this._renderUI();
+      });
+      window.addEventListener("offline", () => {
+        this.showToast("🔴 Connection lost", "warning");
+        this._renderUI();
+      });
+      
+      // Auto-save form progress on input changes
+      document.addEventListener("input", () => this._saveForm());
+      this._restoreForm();
       
       this._sendPostMessage({
         apiVersion: 1,
@@ -174,6 +188,29 @@
       ));
     };
 
+    // Form auto-save & restore helpers
+    this._saveForm = function() {
+      const data = {};
+      document.querySelectorAll("input, textarea, select").forEach(el => {
+        if (el.id && !["SubmitBtn", "CancelBtn", "BarcodeResult"].includes(el.id)) {
+          data[el.id] = el.value;
+        }
+      });
+      localStorage.setItem(`${this.tag}_formstate`, JSON.stringify(data));
+    };
+
+    this._restoreForm = function() {
+      try {
+        const data = JSON.parse(localStorage.getItem(`${this.tag}_formstate`));
+        if (data) {
+          Object.keys(data).forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = data[id];
+          });
+        }
+      } catch (e) {}
+    };
+
     // Render User Interface
     this._renderUI = function() {
       const statusDiv = document.getElementById("status");
@@ -254,6 +291,19 @@
           backScreen: "default"
         });
       });
+    };
+
+    // UI Toast Notification Helper
+    this.showToast = function(message, type = "info") {
+      const toast = document.createElement("div");
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.classList.add("show"), 10);
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
     };
   };
 
