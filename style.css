@@ -7,30 +7,47 @@
 }
 
 :root {
-  --primary: #0d6efd;
-  --secondary: #6c757d;
-  --success: #198754;
-  --warning: #ffc107;
-  --danger: #dc3545;
-  --bg: #f8f9fa;
-  --border: #dee2e6;
-  --text: #212529;
-  --radius: 4px;
-  --oracle-red: #D32F2F;
-  --oracle-red-dark: #B71C1C;
-  --oracle-red-light: #FFEBEE;
-  --oracle-blue: #1976D2;
-  --oracle-gray: #424242;
+  --primary: #c15c3d; /* Redwood Terracotta */
+  --secondary: #4a4542; /* Deep Charcoal */
+  --success: #2e7d32; /* Soft Forest Green */
+  --warning: #ef6c00; /* Warm Amber */
+  --danger: #c62828; /* Redwood Crimson */
+  --bg: #faf8f5; /* Warm Canvas Cream */
+  --border: #e6e1da; /* Soft warm gray border */
+  --text: #2c2a29; /* Redwood Charcoal Text */
+  --radius: 6px; /* Slightly softer corners */
+  --oracle-red: #c15c3d;
+  --oracle-red-dark: #8c3f27;
+  --oracle-red-light: #fbeee8;
+  --oracle-blue: #2d7b93; /* Oracle Redwood Slate Blue */
+  --oracle-gray: #7b7571;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
   padding: 10px;
 }
+
+input[type="text"] {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text);
+  background-color: white;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+input[type="text"]:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(193, 92, 61, 0.15);
+}
+
 
 .container {
   max-width: 500px;

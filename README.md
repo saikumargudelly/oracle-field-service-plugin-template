@@ -114,10 +114,23 @@ Since this plugin runs in a cross-origin iframe, browser features like Safari's 
 
 ---
 
+## 📸 Native Device Capabilities (Barcode Scanning)
+
+This template includes a built-in demonstration of native hardware integration. 
+- In [plugin.js](file:///Users/saikumargudelly/Downloads/OFSC_TEST_PLUGIN/plugin.js), the `scanBarcode` method uses OFSC's `callProcedure` to invoke the native mobile app's barcode reader:
+  ```javascript
+  const scanResult = await this.scanBarcode();
+  ```
+- Make sure to add `scanBarcode` to your plugin's **Allowed Procedures** in the OFS Administration screen.
+
+
+---
+
 ## 💻 Local Testing & Simulation
 
 Because OFSC plugins rely on the parent frame's `postMessage` protocol, they cannot run autonomously in a standalone tab.
 To test locally:
 1. Start a local server (e.g., using `npx serve` or Live Server in VS Code).
-2. Create a mock wrapper page that frames the plugin and simulates the OFSC Core messaging.
+2. Create a mock wrapper page that frames the `index.html` plugin in an iframe and simulates the OFSC Core messages.
 3. Verify that the console displays the outgoing lifecycle messages (`ready`, `initEnd`, `close`).
+

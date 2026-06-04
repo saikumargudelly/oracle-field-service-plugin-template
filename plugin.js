@@ -289,6 +289,24 @@
     };
 
     /**
+     * Triggers the native device barcode scanner via the OFSC native mobile wrapper.
+     */
+    this.scanBarcode = async function() {
+      // Check if barcode scanning is allowed by the host environment
+      if (this.openParams && !this.openParams.allowedProcedures?.scanBarcode) {
+        throw new Error("Barcode scanner is not supported or allowed in this environment.");
+      }
+
+      return await this._sendSyncMessage({
+        apiVersion: 1,
+        method: "callProcedure",
+        callId: this._generateCallId(),
+        procedure: "scanBarcode"
+      });
+    };
+
+
+    /**
      * Centralized REST API Wrapper (supports Bearer Auth, timeout, and exponential backoff)
      */
     this.callApi = async function({
@@ -542,6 +560,14 @@
             </div>
           </div>
 
+          <div class="section">
+            <h3>Device Integration</h3>
+            <div class="item" style="gap: 10px; align-items: stretch; display: flex;">
+              <button id="ScanBtn" class="btn btn-primary" style="flex: 1; padding: 6px 12px; margin: 0; font-size: 12px;">Scan Code</button>
+              <input type="text" id="BarcodeResult" placeholder="Result shows here" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
+            </div>
+          </div>
+
           <div class="actions">
             <button id="InfoBtn" class="btn">Show Host Config Details</button>
           </div>
@@ -556,6 +582,28 @@
           "info"
         );
       });
+
+      // Barcode Scanner click listener (utilizes native scanBarcode callProcedure)
+      document.getElementById("ScanBtn")?.addEventListener("click", async () => {
+        try {
+          this._logActivity("barcode", "Triggering barcode scan procedure");
+          this.showToast("Opening device scanner...", 1500, "info");
+          
+          const scanResult = await this.scanBarcode();
+          this._logActivity("barcode", `Scan successful: ${scanResult?.value}`);
+          
+          const resultInput = document.getElementById("BarcodeResult");
+          if (resultInput && scanResult) {
+            resultInput.value = scanResult.value || scanResult.text || JSON.stringify(scanResult);
+          }
+          this.showToast("✓ Barcode scanned successfully", 2000, "success");
+        } catch (error) {
+          console.error("Barcode scan error:", error);
+          this._logActivity("barcode_error", error.message);
+          this.showToast(`Scan failed: ${error.message}`, 4000, "error");
+        }
+      });
+
 
       // Submit action: Sends the updated data back to OFSC and closes the plugin
       document.getElementById("SubmitBtn")?.addEventListener("click", async () => {
