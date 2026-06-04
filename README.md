@@ -76,21 +76,22 @@ sequenceDiagram
 
 ## ⚙️ How to Configure in Oracle Field Service
 
-To test this plugin within your Oracle Field Service environment:
+To deploy and test this plugin within your Oracle Field Service (OFS) environment:
 
-1. **Host the Files:**
-   Upload the plugin folder to a secure, HTTPS-enabled web server or static website hosting provider (e.g., Oracle Cloud Infrastructure Object Storage, GitHub Pages, or AWS S3).
-2. **Register the Plugin in OFS Console:**
+1. **Package the Plugin:**
+   Create a standard `.zip` archive containing the plugin files. Ensure that `index.html` is in the root directory of the archive (not nested inside a subfolder).
+2. **Upload to OFS Console:**
    - Log into Oracle Field Service as an administrator.
-   - Go to **Configuration** ➡️ **Plugins** ➡️ **Add Plugin**.
-   - Fill in the details:
-     * **Plugin Type:** `HTML5`
-     * **URL:** `https://your-server-domain.com/plugin-directory/index.html`
-     * **Security:** Configure secure parameters or applications if using OAuth.
-3. **Map the Plugin to a Button/Action:**
-   - Go to **Configuration** ➡️ **Screen Collaboration / Screen Steps**.
-   - Select the target page layout (e.g. *Edit Activity* or *Activity Details*).
-   - Add a button link and set the Action to launch your registered Plugin.
+   - Go to **Configuration** ➡️ **Forms & Plugins**.
+   - Click **Add Plugin** ➡️ select **Plugin Archive** ➡️ upload your ZIP file.
+   - Set the following configuration parameters:
+     * **Label:** `TEST_HELLO_OFSC` (this must match the bootstrap name in `plugin.js`).
+     * **Secure Parameters:** Configure your OAuth Client/Application keys (OFS, OIC, CX, SCM, ERP) that the plugin will call.
+     * **Allowed Procedures:** Enable **`scanBarcode`** (and any other native device operations your plugin calls).
+3. **Map the Action Link (Button):**
+   - Go to **Configuration** ➡️ **Action Links** (or **Screen Steps** layout editor).
+   - Edit the target screen layout (e.g., *Activity Details* or *Edit Activity*).
+   - Add a new button or link, set its action type to launch your newly uploaded plugin (`TEST_HELLO_OFSC`), and configure the visibility settings.
 
 ---
 
