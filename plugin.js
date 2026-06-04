@@ -13,8 +13,6 @@
     this.storage = null;
     this.openParams = null;
     this.securedData = null;
-    this.OFSCApplication = null;
-    this.resourceUrl = null;
     this.applications = {};
     this._cachedTokens = {};
     
@@ -157,8 +155,14 @@
         this._logActivity("waterfall", "Loading configuration metadata");
         await this._loadApplicationConfig();
         
-        this._logActivity("waterfall", "Requesting token procedure");
-        await this._getAccessToken();
+        this._logActivity("waterfall", "Requesting tokens for configured applications");
+        const appKeys = Object.keys(this.applications || {});
+        // Fetch all tokens in parallel using Promise.all
+        await Promise.all(
+          appKeys.map(key => this._getAccessToken(key).catch(err => {
+            console.warn(`Failed to fetch token for application key '${key}':`, err.message);
+          }))
+        );
         
         this._logActivity("waterfall", "Rendering user interface");
         this._renderUI();
@@ -262,35 +266,27 @@
 
       // Store all discovered applications (OFS, OIC, CX, SCM, ERP, etc.)
       this.applications = apps;
-
-      // Select a primary application for token request procedure.
-      // We prioritize "ofs", but fallback to the first configured application (like OIC, CX, SCM, or ERP) if "ofs" is missing.
-      const appKeys = Object.keys(apps);
-      const ofsKey = appKeys.find(key => apps[key].type === "ofs");
-      
-      this.OFSCApplication = ofsKey || appKeys[0];
-      this.resourceUrl = apps[this.OFSCApplication].resourceUrl;
     };
 
     /**
      * Standard implementation of token retrieval via OFSC callProcedure.
      */
-    this._getAccessToken = async function(appKey = this.OFSCApplication) {
-      if (!appKey) return null;
-      if (this._cachedTokens[appKey]) return this._cachedTokens[appKey];
+    this._getAccessToken = async function(appKey) {
+      const key = appKey || Object.keys(this.applications)[0];
+      if (!key) return null;
+      if (this._cachedTokens[key]) return this._cachedTokens[key];
 
       const authData = await this._sendSyncMessage({
         apiVersion: 1,
         method: "callProcedure",
         callId: this._generateCallId(),
         procedure: "getAccessToken",
-        params: { applicationKey: appKey },
+        params: { applicationKey: key },
       });
 
-      if (!authData?.token) throw new Error(`Failed to retrieve access token for application: ${appKey}`);
+      if (!authData?.token) throw new Error(`Failed to retrieve access token for application: ${key}`);
 
-      this._cachedTokens[appKey] = authData.token;
-      this._cachedToken = authData.token; // Keep backward compatibility
+      this._cachedTokens[key] = authData.token;
       return authData.token;
     };
 
@@ -315,41 +311,44 @@
     /**
      * Centralized REST API Wrapper (supports Bearer Auth, timeout, and exponential backoff)
      */
-    this.callApi = async function({
-      url,
-      method = "GET",
-      data = null,
-      retry = true,
-    }) {
-      try {
-        this.showLoader();
-        this._retryCount = 0;
-
-        const makeRequest = async () => {
-          method = method.toUpperCase();
-          const config = {
-            method,
-            headers: { "Content-Type": "application/json" },
-            signal: AbortSignal.timeout(this._apiTimeout),
-          };
-
-          if (this._cachedToken) {
-            config.headers["Authorization"] = `Bearer ${this._cachedToken}`;
-          }
-
-          if (data && ["POST", "PATCH", "PUT"].includes(method)) {
-            config.body = JSON.stringify(data);
-          }
-
-          let response = await fetch(url, config);
-
-          // Handle Token Expiration (401 Unauthorized recovery)
-          if (response.status === 401 && retry) {
-            this._logActivity("auth", "Token expired (401). Refreshing token...");
-            this._cachedToken = null;
-            await this._getAccessToken();
-            return makeRequest(); // Retry request with new token
-          }
+     this.callApi = async function({
+       url,
+       method = "GET",
+       data = null,
+       retry = true,
+       appKey
+     }) {
+       const key = appKey || Object.keys(this.applications)[0];
+       try {
+         this.showLoader();
+         this._retryCount = 0;
+ 
+         const makeRequest = async () => {
+           method = method.toUpperCase();
+           const config = {
+             method,
+             headers: { "Content-Type": "application/json" },
+             signal: AbortSignal.timeout(this._apiTimeout),
+           };
+ 
+           const token = key ? this._cachedTokens[key] : null;
+           if (token) {
+             config.headers["Authorization"] = `Bearer ${token}`;
+           }
+ 
+           if (data && ["POST", "PATCH", "PUT"].includes(method)) {
+             config.body = JSON.stringify(data);
+           }
+ 
+           let response = await fetch(url, config);
+ 
+           // Handle Token Expiration (401 Unauthorized recovery)
+           if (response.status === 401 && retry && key) {
+             this._logActivity("auth", `Token expired for ${key} (401). Refreshing token...`);
+             delete this._cachedTokens[key];
+             await this._getAccessToken(key);
+             return makeRequest(); // Retry request with new token
+           }
 
           if (!response.ok) {
             const errorText = await response.text();
@@ -437,15 +436,15 @@
     /**
      * Session Timeout Management
      */
-    this._resetSessionTimeout = function() {
-      if (this._sessionTimeout) clearTimeout(this._sessionTimeout);
-      
-      this._sessionTimeout = setTimeout(() => {
-        this._logActivity("session", "Session expired due to inactivity");
-        this._cachedToken = null;
-        this.showToast("Your session has expired. Form progress saved locally.", "warning");
-      }, this._inactivityTimeout);
-    };
+     this._resetSessionTimeout = function() {
+       if (this._sessionTimeout) clearTimeout(this._sessionTimeout);
+       
+       this._sessionTimeout = setTimeout(() => {
+         this._logActivity("session", "Session expired due to inactivity");
+         this._cachedTokens = {}; // Clear all cached application tokens
+         this.showToast("Your session has expired. Form progress saved locally.", "warning");
+       }, this._inactivityTimeout);
+     };
 
     /**
      * Local Form State Persistence (Offline support)
@@ -581,9 +580,12 @@
 
       // Show Config Details click listener
       document.getElementById("InfoBtn")?.addEventListener("click", () => {
+        const appsInfo = Object.keys(this.applications || {})
+          .map(key => `${key} (${this.applications[key].type?.toUpperCase()}):\n${this.applications[key].resourceUrl || "No URL"}`)
+          .join("\n\n");
         this.showToast(
-          `App Key: ${this.OFSCApplication}\nResource URL: ${this.resourceUrl}\nHost Referrer: ${document.referrer || "None"}`,
-          5000,
+          `Discovered Apps:\n\n${appsInfo || "None"}\n\nHost Referrer: ${document.referrer || "None"}`,
+          6000,
           "info"
         );
       });
