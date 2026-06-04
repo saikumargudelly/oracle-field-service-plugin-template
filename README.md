@@ -86,12 +86,12 @@ To deploy and test this plugin within your Oracle Field Service (OFS) environmen
    - Click **Add Plugin** ➡️ select **Plugin Archive** ➡️ upload your ZIP file.
    - Set the following configuration parameters:
      * **Label:** `TEST_HELLO_OFSC` (this must match the bootstrap name in `plugin.js`).
-     * **Secure Parameters:** Configure your OAuth Client/Application keys (OFS, OIC, CX, SCM, ERP) that the plugin will call.
+     * **Applications:** Associate the external applications (OIC, CX, SCM, ERP) that this plugin is authorized to request access tokens for.
      * **Allowed Procedures:** Enable **`scanBarcode`** (and any other native device operations your plugin calls).
-3. **Map the Action Link (Button):**
-   - Go to **Configuration** ➡️ **Action Links** (or **Screen Steps** layout editor).
+3. **Map the Plugin to a Button:**
+   - Go to **Configuration** ➡️ **User Types** ➡️ **Screen Configuration**.
    - Edit the target screen layout (e.g., *Activity Details* or *Edit Activity*).
-   - Add a new button or link, set its action type to launch your newly uploaded plugin (`TEST_HELLO_OFSC`), and configure the visibility settings.
+   - Add a button, set the Action to launch your registered plugin (`TEST_HELLO_OFSC`), and configure the visibility settings.
 
 ---
 
