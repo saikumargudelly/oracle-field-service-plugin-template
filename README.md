@@ -6,6 +6,19 @@ It is designed to serve as a clean reference architecture for developers who nee
 
 ---
 
+## ✨ Key Features
+
+This template comes pre-configured with essential capabilities required for enterprise OFS plugins:
+
+* **🎨 Oracle Redwood Styling:** Responsive interface matching Oracle's Redwood design palette (Terracotta, Slate Blue, Canvas Cream, and custom focus outlines) for a native extension appearance.
+* **⚙️ Auto-Discovery & App Configuration:** Dynamically parses and discovers core application configurations and endpoint URLs (`resourceUrl`) from the host `init` payload.
+* **🔑 Secure OAuth Token Retrieval:** Standard helper method wrapping the `callProcedure` ➡️ `getAccessToken` method to fetch authorization tokens from OFS.
+* **📶 Online/Offline Connection State Management:** Native listeners track connection drops/restorations, displaying toast warnings and toggling network status badges.
+* **💾 Local Form State Persistence:** Automatically saves form values locally in the background (offline support) and restores inputs if the page resets or the session expires.
+* **📸 Native Code Scanner Integration:** Demonstrates device hardware integration by triggering the native device camera scanner via `callProcedure` ➡️ `scanBarcode`.
+
+---
+
 ## 🏗️ Architecture & Communication Flow
 
 Oracle Field Service plugins run in isolated contexts (iframes) and communicate with the host OFSC Core Application using the HTML5 cross-origin `window.postMessage()` API.
