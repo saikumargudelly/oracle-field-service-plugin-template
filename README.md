@@ -12,7 +12,7 @@ This template comes pre-configured with essential capabilities required for ente
 
 * **🎨 Oracle Redwood Styling:** Responsive interface matching Oracle's Redwood design palette (Terracotta, Slate Blue, Canvas Cream, and custom focus outlines) for a native extension appearance.
 * **⚙️ Auto-Discovery & App Configuration:** Dynamically parses and discovers core application configurations and endpoint URLs (`resourceUrl`) from the host `init` payload.
-* **🔑 Secure OAuth Token Retrieval:** Standard helper method wrapping the `callProcedure` ➡️ `getAccessToken` method to fetch authorization tokens from OFS.
+* **🔑 Multi-App OAuth Token Caching:** Automatically discovers all configured host integrations (OFS, OIC, Oracle CX, SCM, ERP) and requests/caches their respective OAuth tokens in parallel on startup using `callProcedure` ➡️ `getAccessToken`.
 * **📶 Online/Offline Connection State Management:** Native listeners track connection drops/restorations, displaying toast warnings and toggling network status badges.
 * **💾 Local Form State Persistence:** Automatically saves form values locally in the background (offline support) and restores inputs if the page resets or the session expires.
 * **📸 Native Code Scanner Integration:** Demonstrates device hardware integration by triggering the native device camera scanner via `callProcedure` ➡️ `scanBarcode`.
@@ -30,7 +30,7 @@ Oracle Field Service plugins run in isolated contexts (iframes) and communicate 
 2. **Metadata Setup (`init` & `initEnd`):** 
    If `sendInitData` was set to `true`, OFSC Core replies with the `init` message (containing configuration properties, translation elements, and application endpoints). The plugin saves this and acknowledges with `initEnd`.
 3. **Active State (`open`):** 
-   When the user opens the plugin page, OFSC Core sends the `open` message containing contextual parameters (e.g. `aid` for Activity ID, `resourceId` for the technician's record). The plugin retrieves access tokens via `getAccessToken` and renders the UI.
+   When the user opens the plugin page, OFSC Core sends the `open` message containing contextual parameters (e.g. `aid` for Activity ID, `resourceId` for the technician's record). The plugin dynamically retrieves and caches OAuth access tokens in parallel for all configured applications (OFS, OIC, CX, SCM, ERP, etc.) via `getAccessToken` and renders the UI.
 4. **Synchronization (`close` or `update`):** 
    When the user completes their actions, the plugin sends a `close` message containing an `actions` array specifying what properties to update on the activity or inventory. The host applies the updates and closes the plugin iframe.
 
@@ -41,16 +41,18 @@ sequenceDiagram
     
     Note over P,H: Hidden Initialization Phase
     P->>H: postMessage({ method: "ready", sendInitData: true })
-    H->>P: postMessage({ method: "init", applications: {...} })
-    P->>P: Store Metadata Configuration
+    H->>P: postMessage({ method: "init", applications: { App_OFS: {...}, App_OIC: {...} } })
+    P->>P: Store Metadata Configurations
     P->>H: postMessage({ method: "initEnd" })
     Note over H: Core destroys initialization iframe
     
     Note over P,H: Visible Active Phase (User Opens Plugin)
     H->>P: postMessage({ method: "open", openParams: {...} })
-    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken" })
+    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "App_OFS" } })
     H->>P: postMessage({ method: "callProcedureResult", token: "..." })
-    P->>P: Render UI & Fetch external REST APIs if needed
+    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "App_OIC" } })
+    H->>P: postMessage({ method: "callProcedureResult", token: "..." })
+    P->>P: Render UI & Fetch external REST APIs using App tokens
     
     Note over P,H: Submission / Exit Phase
     P->>H: postMessage({ method: "close", actions: [...], backScreen: "default" })
