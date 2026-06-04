@@ -110,7 +110,7 @@ To deploy and test this plugin within your Oracle Field Service (OFS) environmen
 ## 📸 Native Device Capabilities (Barcode Scanning & Geolocation)
 
 > [!NOTE]
-> **Complementary / Optional Features:** Barcode scanning and Geolocation are included as demonstrations of device hardware and location integrations. If your plugin does not require them, the associated UI elements, event listeners, and helper methods in `plugin.js` can be safely removed to keep the plugin footprint even smaller.
+> **Complementary / Optional Features:** Barcode scanning and Geolocation are included as template demonstrations. These are complementary features that can be implemented or enabled if a client or business user specifically requests them. If your requirements do not call for them, the associated UI buttons, handlers, and helper methods in `plugin.js` can be safely removed to keep the plugin codebase even lighter.
 
 ### **1. Barcode Scanning (OFS API)**
 * In [plugin.js](file:///Users/saikumargudelly/Downloads/OFSC_TEST_PLUGIN/plugin.js), the `scanBarcode` method uses OFSC's `callProcedure` to invoke the native mobile app's barcode reader:
