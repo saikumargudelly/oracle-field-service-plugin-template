@@ -9,6 +9,7 @@
     this.tag = "TEST_HELLO_OFSC";
     this.storage = null;
     this.openParams = null;
+    this.allowedProcedures = {};
     this.applications = {};
     this._cachedTokens = {};
     this._pendingRequests = new Map();
@@ -98,6 +99,7 @@
     // Lifecycle: Open
     this._handleOpen = async function(data) {
       this.openParams = data.openParams;
+      this.allowedProcedures = data.allowedProcedures || {};
       
       try {
         const metadataStr = await this.storage.getValue(`${this.tag}_metadata`);
@@ -140,7 +142,7 @@
 
     // Trigger Mobile Device Barcode Scanner
     this.scanBarcode = async function() {
-      if (this.openParams && !this.openParams.allowedProcedures?.scanBarcode) {
+      if (!this.allowedProcedures?.scanBarcode) {
         throw new Error("Scanner not allowed in current OFS configuration.");
       }
       return await this._sendSyncMessage({
