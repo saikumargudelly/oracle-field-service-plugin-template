@@ -15,6 +15,8 @@
     this.securedData = null;
     this.OFSCApplication = null;
     this.resourceUrl = null;
+    this.applications = {};
+    this._cachedTokens = {};
     
     // UI and Network State
     this.isOnline = navigator.onLine;
@@ -254,38 +256,42 @@
       const config = JSON.parse(metadataStr);
       const apps = config.data?.applications;
 
-      if (!apps) throw new Error("No applications found in metadata configuration.");
-
-      // Find the OFS core application definition
-      for (const key in apps) {
-        if (apps[key].type === "ofs") {
-          this.OFSCApplication = key;
-          this.resourceUrl = apps[key].resourceUrl;
-          return;
-        }
+      if (!apps || Object.keys(apps).length === 0) {
+        throw new Error("No applications found in metadata configuration.");
       }
 
-      throw new Error("No valid Oracle Field Service application key found.");
+      // Store all discovered applications (OFS, OIC, CX, SCM, ERP, etc.)
+      this.applications = apps;
+
+      // Select a primary application for token request procedure.
+      // We prioritize "ofs", but fallback to the first configured application (like OIC, CX, SCM, or ERP) if "ofs" is missing.
+      const appKeys = Object.keys(apps);
+      const ofsKey = appKeys.find(key => apps[key].type === "ofs");
+      
+      this.OFSCApplication = ofsKey || appKeys[0];
+      this.resourceUrl = apps[this.OFSCApplication].resourceUrl;
     };
 
     /**
      * Standard implementation of token retrieval via OFSC callProcedure.
      */
-    this._getAccessToken = async function() {
-      if (this._cachedToken) return this._cachedToken;
+    this._getAccessToken = async function(appKey = this.OFSCApplication) {
+      if (!appKey) return null;
+      if (this._cachedTokens[appKey]) return this._cachedTokens[appKey];
 
       const authData = await this._sendSyncMessage({
         apiVersion: 1,
         method: "callProcedure",
         callId: this._generateCallId(),
         procedure: "getAccessToken",
-        params: { applicationKey: this.OFSCApplication },
+        params: { applicationKey: appKey },
       });
 
-      if (!authData?.token) throw new Error("Failed to retrieve access token from procedure.");
+      if (!authData?.token) throw new Error(`Failed to retrieve access token for application: ${appKey}`);
 
-      this._cachedToken = authData.token;
-      return this._cachedToken;
+      this._cachedTokens[appKey] = authData.token;
+      this._cachedToken = authData.token; // Keep backward compatibility
+      return authData.token;
     };
 
     /**
@@ -545,19 +551,18 @@
           </div>
 
           <div class="section">
-            <h3>OFSC Configuration</h3>
-            <div class="item">
-              <span>Host Application:</span>
-              <span class="${this.OFSCApplication ? 'ok' : 'warn'}">
-                ${this.OFSCApplication || "Not Initialized"}
-              </span>
-            </div>
-            <div class="item">
-              <span>OAuth Token Status:</span>
-              <span class="${this._cachedToken ? 'ok' : 'warn'}">
-                ${this._cachedToken ? "✓ Available" : "⚠ Pending"}
-              </span>
-            </div>
+            <h3>Discovered Applications</h3>
+            ${Object.keys(this.applications || {}).map(key => {
+              const app = this.applications[key];
+              const isTokenCached = this._cachedTokens && this._cachedTokens[key];
+              const tokenStatusText = isTokenCached ? "✓ Active" : "⚠ Pending";
+              return `
+                <div class="item">
+                  <span>${key} (${app.type?.toUpperCase()}):</span>
+                  <span class="${isTokenCached ? 'ok' : 'warn'}">${tokenStatusText}</span>
+                </div>
+              `;
+            }).join("") || '<div class="item"><span>None Found</span></div>'}
           </div>
 
           <div class="section">
