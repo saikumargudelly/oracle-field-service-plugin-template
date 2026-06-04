@@ -95,23 +95,14 @@ To deploy and test this plugin within your Oracle Field Service (OFS) environmen
 
 ---
 
-## 🛠️ Customization Checklist for Developers
+## 🛠️ Developer Customization Checklist
 
-Before deploying this template, customize the following areas:
-
-### 1. Map Form Fields to OFSC Properties
-In the `SubmitBtn` click listener inside `plugin.js`, map your custom HTML form input IDs to standard or custom Oracle Field Service property keys. Note that OFSC custom property names are typically defined in **UPPERCASE** (e.g., `CUST_CONTACT_NAME`):
-```javascript
-// Map form input values to OFSC property keys
-const propertiesToUpdate = {
-  "CUSTOMER_PHONE": document.getElementById("phoneInput").value,
-  "WORK_ORDER_NOTES": document.getElementById("notesTextArea").value,
-};
-```
-
-### 2. Handle Cross-Origin Iframe Storage
-Since this plugin runs in a cross-origin iframe, browser features like Safari's **Intelligent Tracking Prevention (ITP)** and Chrome's third-party cookie restrictions will block `localStorage` operations. 
-- Implement a fallback strategy (such as checking if storage is available, using cookie fallback, or saving state in-memory) to handle cases where `localStorage.js` throws storage exceptions.
+1. **Bootstrap Label:** Update the registration label at the bottom of `plugin.js` to match your registered OFS plugin label:
+   ```javascript
+   plugin.init("YOUR_OFS_PLUGIN_LABEL");
+   ```
+2. **OFS Property Mapping:** The template automatically loops through HTML inputs and maps their `id`s to uppercase OFS properties (e.g. input `#cust_phone` automatically maps to `CUST_PHONE`). Ensure your HTML `id`s match your target OFS custom properties.
+3. **Cross-Origin Storage:** Since plugins run in iframes, browser security rules (like Safari ITP) may block `localStorage`. If needed, implement an in-memory or cookie fallback in `localStorage.js`.
 
 ---
 
