@@ -1,0 +1,20 @@
+{
+  "name": "oracle-field-service-plugin-template",
+  "version": "1.1.0",
+  "description": "Beginner-friendly developer reference template for Oracle Field Service plugins",
+  "scripts": {
+    "test": "node --test",
+    "package": "node package.js"
+  },
+  "keywords": [
+    "oracle-field-service",
+    "ofs",
+    "ofsc",
+    "plugin",
+    "template",
+    "postmessage",
+    "mobile"
+  ],
+  "author": "Oracle Field Service Developers",
+  "license": "MIT"
+}

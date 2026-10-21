@@ -1,138 +1,124 @@
-# Oracle Field Service (OFS) Plugin - Developer Reference Template
+# Oracle Fusion Field Service (OFS) Plugin Template
 
-This repository contains a **minimal, lightweight, and secure boilerplate template** demonstrating the integration lifecycle of an **Oracle Field Service Cloud (OFSC) Plugin**. 
+**Enterprise Developer Reference Architecture & Starter Kit**
 
-It is designed to serve as a clean reference architecture for developers who need to build custom plugins, forms, or applications that run inside an `iframe` within Oracle Field Service and communicate with the core application.
+[![Oracle Field Service](https://img.shields.io/badge/Oracle%20Cloud-Field%20Service-c15c3d.svg)](https://docs.oracle.com/en/cloud/saas/field-service/)
+[![Design System](https://img.shields.io/badge/Design-Oracle%20Redwood-4a4542.svg)](https://www.oracle.com/redwood/)
+[![Dependencies](https://img.shields.io/badge/Dependencies-Zero-2e7d32.svg)]()
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
----
-
-## ✨ Key Features
-
-This template comes pre-configured with essential capabilities required for enterprise OFS plugins:
-
-* **🎨 Oracle Redwood Styling:** Responsive interface matching Oracle's Redwood design palette (Terracotta, Slate Blue, Canvas Cream, and custom focus outlines) for a native extension appearance.
-* **⚙️ Auto-Discovery & App Configuration:** Dynamically parses and discovers core application configurations and endpoint URLs (`resourceUrl`) from the host `init` payload.
-* **🔑 Multi-App OAuth Token Caching:** Automatically discovers all configured host integrations (OFS, OIC, Oracle CX, SCM, ERP) and requests/caches their respective OAuth tokens in parallel on startup using `callProcedure` ➡️ `getAccessToken`.
-* **📶 Online/Offline Connection State Management:** Native listeners track connection drops/restorations, displaying toast warnings and toggling network status badges.
-* **💾 Local Form State Persistence:** Automatically saves form values locally in the background (offline support) and restores inputs if the page resets or the session expires.
-* **📸 Native Code Scanner Integration:** Demonstrates device hardware integration by triggering the native device camera scanner via `callProcedure` ➡️ `scanBarcode`.
-* **📍 Device Geolocation Integration:** Demonstrates location services by retrieving precise device coordinates (Latitude, Longitude, and Accuracy) using the native HTML5 Geolocation API.
+An enterprise-ready, framework-free reference template for developing custom extensions in **Oracle Fusion Field Service (OFS)**. Built on standard vanilla JavaScript (ES6+), HTML5, and CSS, it demonstrates the official plugin protocol, bidirectional `postMessage` RPC, in-memory OAuth token handling, activity-scoped drafts, and hardware device integrations without build-step overhead.
 
 ---
 
-## 🏗️ Architecture & Communication Flow
+## ⚡ Quick Start
 
-Oracle Field Service plugins run in isolated contexts (iframes) and communicate with the host OFSC Core Application using the HTML5 cross-origin `window.postMessage()` API.
+### 1. Download Deployable Plugin Archive
+You can download the pre-packaged archive directly to your local **Downloads** folder:
+- **Direct Download**: Click [Download plugin.zip](plugin.zip) *(or click "📦 Download ZIP" in [`index.html`](index.html) / [`mock-host.html`](mock-host.html))*.
+- **Generate Archive**: Run `npm run package` (or `node package.js`) to generate `plugin.zip`.
 
-### **Lifecycle Message Flow**
+### 2. Local Simulation & Verification
+Test the entire plugin lifecycle locally without an active Oracle Cloud tenant:
+```bash
+# Start a local static server
+python3 -m http.server 8080
 
-1. **Auto-Discovery (`ready`):** 
-   The plugin loads and immediately posts a `ready` message to the parent frame.
-2. **Metadata Setup (`init` & `initEnd`):** 
-   If `sendInitData` was set to `true`, OFSC Core replies with the `init` message (containing configuration properties, translation elements, and application endpoints). The plugin saves this and acknowledges with `initEnd`.
-3. **Active State (`open`):** 
-   When the user opens the plugin page, OFSC Core sends the `open` message containing contextual parameters (e.g. `aid` for Activity ID, `resourceId` for the technician's record). The plugin dynamically retrieves and caches OAuth access tokens in parallel for all configured applications (OFS, OIC, CX, SCM, ERP, etc.) via `getAccessToken` and renders the UI.
-4. **Synchronization (`close` or `update`):** 
-   When the user completes their actions, the plugin sends a `close` message containing an `actions` array specifying what properties to update on the activity or inventory. The host applies the updates and closes the plugin iframe.
+# Open the interactive mock host in your browser:
+# http://localhost:8080/mock-host.html
+```
 
-```mermaid
-sequenceDiagram
-    participant P as Plugin (Iframe)
-    participant H as OFS Core Application
-    
-    Note over P,H: Hidden Initialization Phase
-    P->>H: postMessage({ method: "ready", sendInitData: true })
-    H->>P: postMessage({ method: "init", applications: { App_OFS: {...}, App_OIC: {...} } })
-    P->>P: Store Metadata Configurations
-    P->>H: postMessage({ method: "initEnd" })
-    Note over H: Core destroys initialization iframe
-    
-    Note over P,H: Visible Active Phase (User Opens Plugin)
-    H->>P: postMessage({ method: "open", openParams: {...} })
-    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "App_OFS" } })
-    H->>P: postMessage({ method: "callProcedureResult", token: "..." })
-    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "App_OIC" } })
-    H->>P: postMessage({ method: "callProcedureResult", token: "..." })
-    P->>P: Render UI & Fetch external REST APIs using App tokens
-    
-    Note over P,H: Submission / Exit Phase
-    P->>H: postMessage({ method: "close", actions: [...], backScreen: "default" })
-    Note over H: Core updates record properties and closes iframe
+### 3. Run Automated Unit Tests
+Verify protocol handling, security sanitization, and storage resilience:
+```bash
+npm test
 ```
 
 ---
 
-## 📂 File Structure
+## 🏛️ Architecture & Lifecycle Contract
 
-* **`index.html`**: Entry point for the plugin UI. Includes basic layout, action buttons, and loading spinner placeholder.
-* **`style.css`**: Styling sheets including clean UI classes and a loader spinner aligned to the Oracle Redwood color themes.
-* **`plugin.js`**: Core plugin controller. Manages:
-  - Secure bidirectional message sending/receiving.
-  - Verification of message origins.
-  - Tracking synchronous procedure responses (`callProcedure`).
-  - Form validation, auto-saving of offline state, and posting updates.
-* **`localStorage.js`**: An abstraction layer for local storage to cache credentials, logs, and form states.
+Oracle Field Service plugins run inside a sandboxed `<iframe>` within the OFS Core web application or native mobile clients (iOS / Android). Communication is handled via asynchronous JSON payloads over `window.postMessage`.
 
----
+```mermaid
+sequenceDiagram
+    autonumber
+    participant P as Plugin Iframe
+    participant H as OFS Core Host
 
-## ⚙️ How to Configure in Oracle Field Service
+    Note over P,H: 1. Discovery & Handshake
+    P->>H: postMessage({ method: "ready", sendInitData: true })
+    H->>P: postMessage({ method: "init", applications: { ... } })
+    P->>H: postMessage({ method: "initEnd" })
 
-To deploy and test this plugin within your Oracle Field Service (OFS) environment:
+    Note over P,H: 2. Active Session & Context
+    H->>P: postMessage({ method: "open", openParams: { aid: "1001" }, allowedProcedures: { ... } })
+    P->>P: Restore saved draft for Activity #1001
 
-1. **Package the Plugin:**
-   Create a standard `.zip` archive containing the plugin files. Ensure that `index.html` is in the root directory of the archive (not nested inside a subfolder).
-2. **Upload to OFS Console:**
-   - Log into Oracle Field Service as an administrator.
-   - Go to **Configuration** ➡️ **Forms & Plugins**.
-   - Click **Add Plugin** ➡️ select **Plugin Archive** ➡️ upload your ZIP file.
-   - Set the following configuration parameters:
-     * **Label:** `TEST_HELLO_OFSC` (this must match the bootstrap name in `plugin.js`).
-     * **Applications:** Associate the external applications (OIC, CX, SCM, ERP) that this plugin is authorized to request access tokens for.
-     * **Allowed Procedures:** Enable **`scanBarcode`** (and any other native device operations your plugin calls).
-3. **Map the Plugin to a Button:**
-   - Go to **Configuration** ➡️ **User Types** ➡️ **Screen Configuration**.
-   - Edit the target screen layout (e.g., *Activity Details* or *Edit Activity*).
-   - Add a button, set the Action to launch your registered plugin (`TEST_HELLO_OFSC`), and configure the visibility settings.
+    Note over P,H: 3. Authentication & Device RPC
+    P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "ofs_api" } })
+    H->>P: postMessage({ method: "callProcedureResult", resultData: { token: "..." } })
+    P->>H: postMessage({ method: "callProcedure", procedure: "scanBarcode" })
+    H->>P: postMessage({ method: "callProcedureResult", resultData: { format: "QR_CODE", text: "..." } })
+
+    Note over P,H: 4. Submission & Exit
+    P->>P: Clear activity draft
+    P->>H: postMessage({ method: "close", actions: [{ entity: "activity", action: "update", aid: "1001", properties: { ... } }] })
+```
 
 ---
 
-## 🛠️ Developer Customization Checklist
+## 📂 Repository Structure
 
-1. **Bootstrap Label:** Update the registration label at the bottom of `plugin.js` to match your registered OFS plugin label:
-   ```javascript
-   plugin.init("YOUR_OFS_PLUGIN_LABEL");
+| File | Description |
+| :--- | :--- |
+| [`index.html`](index.html) | Plugin UI entry point featuring Redwood design components and interactive property inputs. |
+| [`plugin.js`](plugin.js) | Central controller managing lifecycle events, origin checks, procedure RPC, token cache, and submissions. |
+| [`localStorage.js`](localStorage.js) | Storage layer with automated in-memory fallback for third-party cookie/partitioned storage environments. |
+| [`style.css`](style.css) | Oracle Redwood styling system tokens (`--primary: #c15c3d`, Canvas Cream, Charcoal). |
+| [`mock-host.html`](mock-host.html) | Local development harness simulating the OFS parent window and live messaging inspector. |
+| [`package.js`](package.js) | Zero-dependency build utility generating the root-level `plugin.zip` for OFS administration upload. |
+
+---
+
+## 🔒 Enterprise Engineering Standards
+
+1. **Strict Message Origin Validation**: Enforces parent window origin verification using `document.referrer` and `window.location.ancestorOrigins`. Eliminates wildcard target origins for privileged data transfers.
+2. **XSS Protection**: All incoming parameters (`aid`, `resourceId`, application metadata) are sanitized via HTML entity encoding before rendering into the DOM.
+3. **In-Memory Token Lifecycle**: OAuth tokens retrieved via `getAccessToken` are retained exclusively in volatile memory (`this._cachedTokens`). Tokens are never written to persistent browser storage or written to log files.
+4. **Scoped Form Drafts**: Drafts are partitioned by unique Activity ID (`${tag}_draft_aid_${aid}`), preventing draft leakage across customer assignments. Drafts are automatically purged on submission.
+5. **Procedure Timeouts**: Remote procedure calls (`callProcedure`) feature a 15-second safety timeout and rejection handling to prevent interface freezing.
+
+---
+
+## 🚀 Deployment Guide
+
+1. **Package the Archive**:
+   ```bash
+   npm run package
    ```
-2. **OFS Property Mapping:** The template automatically loops through HTML inputs and maps their `id`s to uppercase OFS properties (e.g. input `#cust_phone` automatically maps to `CUST_PHONE`). Ensure your HTML `id`s match your target OFS custom properties.
-3. **Cross-Origin Storage:** Since plugins run in iframes, browser security rules (like Safari ITP) may block `localStorage`. If needed, implement an in-memory or cookie fallback in `localStorage.js`.
+   *(Verifies `index.html` is packaged at the archive root of `plugin.zip`)*.
+
+2. **Register in OFS Administration**:
+   - Navigate to **Configuration** ➡️ **Forms & Plugins**.
+   - Select **Add Plugin** ➡️ **Plugin Archive** ➡️ Upload `plugin.zip`.
+   - **Label**: `TEST_HELLO_OFSC` *(must match label configured in `plugin.init()`)*.
+   - **Allowed Procedures**: Select **`scanBarcode`** (and native procedures as required).
+   - **Applications**: Associate target OAuth applications for token retrieval.
+
+3. **Bind to Screen Layout**:
+   - Navigate to **Configuration** ➡️ **User Types** ➡️ **Screen Configuration**.
+   - Open target layout (e.g. *Activity Details*), insert an Action button targeting `TEST_HELLO_OFSC`.
 
 ---
 
-## 📸 Native Device Capabilities (Barcode Scanning & Geolocation)
+## 📚 Technical References
 
-> [!NOTE]
-> **Complementary / Optional Features:** Barcode scanning and Geolocation are included as template demonstrations. These are complementary features that can be implemented or enabled if a client or business user specifically requests them. If your requirements do not call for them, the associated UI buttons, handlers, and helper methods in `plugin.js` can be safely removed to keep the plugin codebase even lighter.
-
-### **1. Barcode Scanning (OFS API)**
-* In [plugin.js], the `scanBarcode` method uses OFSC's `callProcedure` to invoke the native mobile app's barcode reader:
-  ```javascript
-  const scanResult = await this.scanBarcode();
-  ```
-* Make sure to add `scanBarcode` to your plugin's **Allowed Procedures** in the OFS Administration screen.
-
-### **2. Geolocation (HTML5 API)**
-* To obtain the resource's current coordinates, the plugin uses standard HTML5 Geolocation (`navigator.geolocation.getCurrentPosition`) instead of custom RPC calls:
-  ```javascript
-  const coords = await this.getLocation();
-  ```
-* Ensure location services are enabled on the target device and that the web browser or OFS Mobile app has permission to access device location.
+- [Oracle Fusion Field Service Mobile Plugin Framework Guide](https://docs.oracle.com/en/cloud/saas/field-service/fapcf/)
+- [Oracle Field Service REST API Documentation](https://docs.oracle.com/en/cloud/saas/field-service/farfs/)
+- [Oracle Redwood Design System Guidelines](https://www.oracle.com/redwood/)
 
 ---
 
-## 💻 Local Testing & Simulation
-
-Because OFSC plugins rely on the parent frame's `postMessage` protocol, they cannot run autonomously in a standalone tab.
-To test locally:
-1. Start a local server (e.g., using `npx serve` or Live Server in VS Code).
-2. Create a mock wrapper page that frames the `index.html` plugin in an iframe and simulates the OFSC Core messages.
-3. Verify that the console displays the outgoing lifecycle messages (`ready`, `initEnd`, `close`).
-
+## 📄 License
+This reference template is distributed under the [MIT License](LICENSE).

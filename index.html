@@ -3,23 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hello OFSC Demo</title>
+    <title>Hello OFS - Plugin Reference Template</title>
     <link rel="stylesheet" href="style.css">
     <script src="./localStorage.js"></script>
 </head>
 <body>
-    <div id="loader"></div>
+    <!-- Oracle Redwood loading spinner overlay for long-running procedures -->
+    <div id="loader"><div class="loader-spinner"></div></div>
+
     <div class="container">
         <div class="header">
-            <h1>Hello OFSC</h1>
-            <p>Minimal OFSC Plugin Demo</p>
+            <div class="header-content">
+                <div>
+                    <h1>Hello OFS</h1>
+                    <p>Oracle Field Service Plugin Reference Template</p>
+                </div>
+                <a href="plugin.zip" download="plugin.zip" id="DownloadZipBtn" class="btn-download" title="Download deployable plugin.zip to your Downloads folder">
+                    📦 Download ZIP
+                </a>
+            </div>
         </div>
 
-        <div id="status" class="loading">Loading plugin...</div>
+        <!-- Dynamic Status, Auth & Hardware Capabilities rendered by plugin.js -->
+        <div id="status" class="loading">Initializing plugin...</div>
+
+        <!-- Sample Form: Demonstrates draft auto-saving & mapping to OFS activity properties -->
+        <div class="section form-section">
+            <h3>Activity Updates (Editable Sample)</h3>
+            <p class="form-hint">Type below to test local draft auto-saving. On submit, this maps to the <code>ACTIVITY_NOTES</code> property.</p>
+            <div class="form-group">
+                <label for="activity_notes">Resolution / Technician Notes:</label>
+                <textarea id="activity_notes" rows="3" placeholder="Enter resolution notes here (auto-saved as local draft)..."></textarea>
+            </div>
+        </div>
 
         <div class="footer">
-            <button class="btn btn-secondary" id="CancelBtn">Close</button>
-            <button class="btn btn-primary" id="SubmitBtn">Submit</button>
+            <button class="btn btn-secondary" id="CancelBtn" type="button">Close</button>
+            <button class="btn btn-primary" id="SubmitBtn" type="button">Submit to OFS</button>
         </div>
     </div>
 

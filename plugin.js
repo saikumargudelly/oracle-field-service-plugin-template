@@ -1,150 +1,320 @@
 /*!
- * Hello OFS - Developer Reference Template
- * Minimal boilerplate demonstrating the Oracle Field Service Plugin lifecycle.
+ * Oracle Field Service (OFS) - Beginner Developer Reference Template
+ * 
+ * Demonstrates:
+ * 1. OFS Plugin Lifecycle: ready -> init -> initEnd -> open -> close
+ * 2. Bi-directional postMessage communication & callProcedure RPC
+ * 3. In-memory OAuth token caching for configured OFS applications
+ * 4. Scoped form draft persistence (no cross-activity draft leaks)
+ * 5. Device capabilities (native Barcode Scanning & HTML5 Geolocation)
+ * 6. Secure coding (XSS sanitization, origin checking, no token leakage)
+ * 7. Sample REST API caller using acquired Bearer tokens
  */
 "use strict";
 
 (function() {
-  window.OfscPlugin = function() {
-    this.tag = "TEST_HELLO_OFSC";
-    this.storage = null;
-    this.openParams = null;
-    this.allowedProcedures = {};
-    this.applications = {};
-    this._cachedTokens = {};
-    this._pendingRequests = new Map();
-    this._apiTimeout = 30000;
+  /**
+   * Helper: Sanitizes a string for safe insertion into HTML.
+   * Prevents Cross-Site Scripting (XSS) when displaying values from OFS or inputs.
+   *
+   * @param {*} str - Value to sanitize
+   * @returns {string} HTML-escaped string
+   */
+  function escapeHtml(str) {
+    if (str === null || str === undefined) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
 
-    // Bootstrap: Listeners, ready signal, & offline restore
+  /**
+   * Main OFS Plugin Controller Class
+   */
+  window.OfscPlugin = function() {
+    // --- Plugin State ---
+    this.tag = "TEST_HELLO_OFSC";      // Plugin label registered in OFS Configuration -> Forms & Plugins
+    this.storage = null;               // Storage helper for form drafts
+    this.openParams = null;            // Context passed by OFS (aid, resourceId, user, etc.)
+    this.allowedProcedures = {};       // Capabilities allowed by OFS admin (e.g. scanBarcode)
+    this.applications = {};            // External apps configured in OFS (e.g. OFS REST, OIC, ERP)
+    
+    // Security & Internal State
+    this._targetOrigin = null;         // Validated origin of the OFS parent window
+    this._cachedTokens = {};           // IN-MEMORY token cache (NEVER written to localStorage)
+    this._pendingRequests = new Map(); // Tracks async callProcedure RPC requests by callId
+    this._apiTimeout = 15000;          // Timeout in ms for callProcedure responses (prevents UI hanging)
+    this._initialized = false;         // Guard against duplicate initialization
+    this._isSubmitting = false;        // Guard against duplicate form submissions
+
+    // =========================================================================
+    // 1. BOOTSTRAP & LIFECYCLE
+    // =========================================================================
+
+    /**
+     * Initializes the plugin. Call this once when the DOM or window has loaded.
+     * @param {string} pluginName - The label of your plugin in OFS Configuration
+     */
     this.init = function(pluginName) {
-      this.tag = pluginName;
-      this.storage = window.OFSC_TS_STORAGE_1;
-      
+      if (this._initialized) {
+        console.warn(`[OFS] Plugin already initialized with tag: ${this.tag}`);
+        return;
+      }
+      this._initialized = true;
+      this.tag = pluginName || "TEST_HELLO_OFSC";
+      this.storage = window.OfscStorage || window.OFSC_TS_STORAGE_1;
+
+      // Determine expected OFS origin from document.referrer or window.location.ancestorOrigins
+      this._targetOrigin = this._resolveExpectedOrigin();
+
+      // Register postMessage listener for messages from OFS Core
       window.addEventListener("message", this._messageListener.bind(this), false);
-      
-      // Connection listeners
+
+      // Register static button and form listeners ONCE (prevents duplicate event firing)
+      this._setupStaticListeners();
+
+      // Network connection monitors
       window.addEventListener("online", () => {
         this.showToast("🟢 Connection restored", "success");
         this._renderUI();
       });
       window.addEventListener("offline", () => {
-        this.showToast("🔴 Connection lost", "warning");
+        this.showToast("🔴 Connection lost (offline mode)", "warning");
         this._renderUI();
       });
-      
-      // Auto-save form progress on input changes
-      document.addEventListener("input", () => this._saveForm());
-      this._restoreForm();
-      
+
+      // Send the initial "ready" message to OFS Core parent frame.
+      // This tells OFS that the plugin is loaded and ready to receive "init" or "open".
       this._sendPostMessage({
         apiVersion: 1,
         method: "ready",
-        sendInitData: true,
-        showHeader: true,
-        enableBackButton: true,
+        sendInitData: true,       // Requests OFS to send plugin metadata/apps via "init"
+        showHeader: true,         // Show native OFS navigation header
+        enableBackButton: true    // Enable native back button in header
       });
     };
 
-    // Message Receiver & Dispatcher
+    /**
+     * Central message listener for incoming window postMessage events.
+     * Validates message structure, origin, and routes to appropriate handler.
+     */
     this._messageListener = async function(event) {
-      const expectedOrigin = this._getOrigin(document.referrer);
-      if (expectedOrigin && event.origin !== expectedOrigin) {
-        console.warn(`[OFS Warning] Ignored message from: ${event.origin}`);
+      // Security Check: Verify that the message came from the expected OFS origin
+      if (this._targetOrigin && event.origin !== this._targetOrigin) {
+        console.warn(`[OFS Security Warning] Ignored message from unauthorized origin: ${event.origin}`);
         return;
       }
-      
+
+      // If targetOrigin was not set via referrer (e.g. mobile webview or mock), lock onto first valid message
+      if (!this._targetOrigin && event.origin) {
+        this._targetOrigin = event.origin;
+      }
+
+      let data;
       try {
-        const data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-        if (!data || !data.method) return;
-        
-        const id = data.callId || data.method;
-        
-        // Resolve pending synchronous requests (e.g. callProcedureResult)
-        if (this._pendingRequests.has(id)) {
-          const { resolve, reject, timeoutId } = this._pendingRequests.get(id);
-          clearTimeout(timeoutId);
-          this._pendingRequests.delete(id);
-          
-          if (data.method === "error" || data.status === "error") {
-            reject(data);
-          } else {
-            resolve(data.method === "callProcedureResult" ? data.resultData : data);
-          }
-          return;
-        }
-        
-        // Handle standalone lifecycle calls from OFS
-        switch (data.method) {
-          case "init":
-            await this._handleInit(data);
-            break;
-          case "open":
-            await this._handleOpen(data);
-            break;
-          case "error":
-            console.error("OFS Error:", data.error);
-            break;
-        }
+        data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
       } catch (err) {
-        console.error("Message parsing error:", err);
+        console.error("[OFS] Failed to parse incoming postMessage JSON:", err);
+        return;
+      }
+
+      if (!data || typeof data !== "object" || !data.method) {
+        return;
+      }
+
+      // 1. Check if this is a response to an ongoing callProcedure RPC (matches callId)
+      const id = data.callId || data.method;
+      if (this._pendingRequests.has(id)) {
+        const { resolve, reject, timeoutId } = this._pendingRequests.get(id);
+        clearTimeout(timeoutId);
+        this._pendingRequests.delete(id);
+
+        if (data.method === "error" || data.status === "error") {
+          reject(new Error(data.error?.message || data.error || data.detail || `Procedure error: ${data.method}`));
+        } else {
+          // callProcedureResult returns data inside resultData
+          resolve(data.method === "callProcedureResult" ? (data.resultData || data.result || data) : data);
+        }
+        return;
+      }
+
+      // 2. Handle standalone OFS lifecycle methods
+      switch (data.method) {
+        case "init":
+          await this._handleInit(data);
+          break;
+        case "open":
+          await this._handleOpen(data);
+          break;
+        case "error":
+          console.error("[OFS Core Error]:", data.error || data);
+          this.showToast(`OFS Error: ${data.error?.message || "Operation failed"}`, "error");
+          break;
+        default:
+          console.info(`[OFS] Received unhandled message method: ${data.method}`);
       }
     };
 
-    // Lifecycle: Init
+    /**
+     * Handles the OFS "init" lifecycle event.
+     * OFS sends this in a hidden iframe to provide plugin metadata and configured applications.
+     * The plugin must acknowledge completion by posting "initEnd".
+     */
     this._handleInit = async function(data) {
-      await this.storage.setValue(`${this.tag}_metadata`, JSON.stringify({ data }));
-      this._sendPostMessage({ apiVersion: 1, method: "initEnd" });
+      try {
+        // Save metadata configuration so it can be restored when the plugin is visibly opened
+        if (this.storage) {
+          await this.storage.setValue(`${this.tag}_metadata`, JSON.stringify(data));
+        }
+        if (data.applications) {
+          this.applications = data.applications;
+        }
+      } catch (err) {
+        console.warn("[OFS] Error saving init metadata:", err.message);
+      } finally {
+        // Acknowledge initialization completion to OFS Core
+        this._sendPostMessage({ apiVersion: 1, method: "initEnd" });
+      }
     };
 
-    // Lifecycle: Open
+    /**
+     * Handles the OFS "open" lifecycle event.
+     * OFS sends this when the technician launches the plugin on a screen (e.g. Activity Details).
+     */
     this._handleOpen = async function(data) {
-      this.openParams = data.openParams;
+      this.openParams = data.openParams || {};
       this.allowedProcedures = data.allowedProcedures || {};
-      
+
       try {
-        const metadataStr = await this.storage.getValue(`${this.tag}_metadata`);
-        if (metadataStr) {
-          this.applications = JSON.parse(metadataStr).data?.applications || {};
+        // Retrieve applications from storage or init payload
+        if (this.storage) {
+          const metadataStr = await this.storage.getValue(`${this.tag}_metadata`);
+          if (metadataStr) {
+            try {
+              const parsed = JSON.parse(metadataStr);
+              this.applications = parsed.applications || parsed.data?.applications || this.applications;
+            } catch (jsonErr) {
+              console.warn("[OFS] Corrupted metadata in storage, resetting:", jsonErr.message);
+            }
+          }
         }
-        
-        // Fetch OAuth tokens in parallel for all configured applications
+
+        // Restore any previously auto-saved draft for THIS specific activity
+        await this._restoreForm();
+
+        // Optionally pre-fetch OAuth tokens in parallel for configured applications
         const appKeys = Object.keys(this.applications);
-        await Promise.all(
-          appKeys.map(key => this._getAccessToken(key).catch(err => {
-            console.warn(`Failed token for ${key}:`, err.message);
-          }))
-        );
+        if (appKeys.length > 0) {
+          await Promise.all(
+            appKeys.map(key => this._getAccessToken(key).catch(err => {
+              console.warn(`[OFS Auth] Could not pre-fetch token for "${key}":`, err.message);
+            }))
+          );
+        }
       } catch (error) {
-        console.error("Open waterfall error:", error);
+        console.error("[OFS] Error during open phase:", error);
       } finally {
         this._renderUI();
       }
     };
 
-    // Request OAuth Access Token
+    // =========================================================================
+    // 2. PROCEDURE CALLS (RPC) & AUTHENTICATION
+    // =========================================================================
+
+    /**
+     * Requests an OAuth JWT access token for a configured application from OFS.
+     * Tokens are cached strictly in-memory during the session for security.
+     *
+     * @param {string} [appKey] - Key of the configured application in OFS
+     * @returns {Promise<string>} The OAuth access token
+     */
     this._getAccessToken = async function(appKey) {
       const key = appKey || Object.keys(this.applications)[0];
       if (!key) return null;
-      if (this._cachedTokens[key]) return this._cachedTokens[key];
 
-      const authData = await this._sendSyncMessage({
+      // Return cached token if still present in memory
+      if (this._cachedTokens[key]) {
+        return this._cachedTokens[key];
+      }
+
+      const response = await this._sendSyncMessage({
         apiVersion: 1,
         method: "callProcedure",
         callId: this._generateCallId(),
         procedure: "getAccessToken",
-        params: { applicationKey: key },
+        params: { applicationKey: key }
       });
 
-      if (!authData?.token) throw new Error("Failed to get token");
-      this._cachedTokens[key] = authData.token;
-      return authData.token;
+      // Oracle returns token inside resultData.token (or resultData.accessToken)
+      const token = response?.token || response?.accessToken || (typeof response === "string" ? response : null);
+      if (!token) {
+        throw new Error(`OFS returned empty access token for application "${key}".`);
+      }
+
+      this._cachedTokens[key] = token;
+      return token;
     };
 
-    // Trigger Mobile Device Barcode Scanner
+    /**
+     * Demonstrates an authenticated REST API call using the retrieved OAuth Bearer token.
+     * 
+     * EDUCATIONAL NOTE:
+     * - callProcedure('getAccessToken'): RPC to the parent OFS app to get credentials.
+     * - callRestApi(...): Direct HTTP request from the plugin to OFS Core REST API or external systems.
+     *
+     * @param {string} endpointUrl - Target REST URL (e.g. /rest/ofscCore/v1/activities/123)
+     * @param {string} appKey - The application key configured in OFS
+     * @param {Object} [options={}] - Fetch options (method, headers, body)
+     * @returns {Promise<Object>} JSON response from the REST endpoint
+     */
+    this.callRestApi = async function(endpointUrl, appKey, options = {}) {
+      const token = await this._getAccessToken(appKey);
+      if (!token) {
+        throw new Error(`Cannot execute REST API: No token for application "${appKey}".`);
+      }
+
+      const fetchOptions = {
+        method: options.method || "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Accept": "application/json",
+          ...(options.headers || {})
+        }
+      };
+
+      if (options.body) {
+        fetchOptions.headers["Content-Type"] = "application/json";
+        fetchOptions.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
+      }
+
+      const response = await fetch(endpointUrl, fetchOptions);
+      if (!response.ok) {
+        let errorDetails = "";
+        try {
+          const errBody = await response.json();
+          errorDetails = errBody.detail || errBody.title || JSON.stringify(errBody);
+        } catch (_) {
+          errorDetails = response.statusText;
+        }
+        throw new Error(`REST API HTTP ${response.status}: ${errorDetails}`);
+      }
+
+      return await response.json();
+    };
+
+    /**
+     * Invokes the native mobile barcode scanner via callProcedure.
+     * Note: This only functions inside the native Oracle Field Service Mobile app
+     * when 'scanBarcode' is enabled in Allowed Procedures.
+     */
     this.scanBarcode = async function() {
       if (!this.allowedProcedures?.scanBarcode) {
-        throw new Error("Scanner not allowed in current OFS configuration.");
+        throw new Error("Barcode scanner is not enabled in Allowed Procedures for this plugin.");
       }
+
       return await this._sendSyncMessage({
         apiVersion: 1,
         method: "callProcedure",
@@ -153,13 +323,17 @@
       });
     };
 
-    // Get Device Geolocation Coordinates using HTML5 Geolocation API
+    /**
+     * Retrieves the technician's current geographic coordinates using standard HTML5 Geolocation.
+     * @returns {Promise<{latitude: number, longitude: number, accuracy: number}>}
+     */
     this.getLocation = function() {
       return new Promise((resolve, reject) => {
         if (!navigator.geolocation) {
-          reject(new Error("Geolocation is not supported by this browser."));
+          reject(new Error("Geolocation is not supported by this browser/device."));
           return;
         }
+
         navigator.geolocation.getCurrentPosition(
           (position) => {
             resolve({
@@ -172,7 +346,7 @@
             let msg = "Unknown location error";
             switch (error.code) {
               case error.PERMISSION_DENIED:
-                msg = "Location permission denied.";
+                msg = "Location permission was denied by the user.";
                 break;
               case error.POSITION_UNAVAILABLE:
                 msg = "Location information is unavailable.";
@@ -188,14 +362,21 @@
       });
     };
 
-    // Sync message helper (expects a reply, e.g. callProcedure)
+    // =========================================================================
+    // 3. LOW-LEVEL MESSAGING & ORIGIN RESOLUTION
+    // =========================================================================
+
+    /**
+     * Sends an RPC message and waits for the matching response with a safety timeout.
+     */
     this._sendSyncMessage = function(data) {
       const id = data.callId || data.method;
       return new Promise((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           if (this._pendingRequests.has(id)) {
             this._pendingRequests.delete(id);
-            reject(new Error(`Timeout waiting for ${data.method}`));
+            this._setLoading(false);
+            reject(new Error(`Timeout waiting for response to "${data.procedure || data.method}"`));
           }
         }, this._apiTimeout);
 
@@ -204,165 +385,327 @@
       });
     };
 
-    // Low-level postMessage dispatcher
+    /**
+     * Sends a postMessage to the parent OFS window.
+     * Enforces targetOrigin security to prevent privileged data leaks.
+     */
     this._sendPostMessage = function(data) {
-      const origin = this._getOrigin(document.referrer) || "*";
-      parent.postMessage(JSON.stringify(data), origin);
-    };
+      const targetOrigin = this._targetOrigin || "*";
+      if (targetOrigin === "*") {
+        console.warn("[OFS Security] Sending postMessage with wildcard '*' origin. Provide document.referrer or configure host origin.");
+      }
 
-    this._getOrigin = function(url) {
-      if (!url) return null;
-      try {
-        return new URL(url).origin;
-      } catch (e) {
-        return null;
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(JSON.stringify(data), targetOrigin);
+      } else {
+        console.info("[OFS Mock/Standalone] Outgoing message:", data);
       }
     };
 
-    this._generateCallId = function() {
-      return btoa(String.fromCharCode.apply(
-        null, window.crypto.getRandomValues(new Uint8Array(16))
-      ));
+    /**
+     * Resolves the expected parent origin from document.referrer or ancestorOrigins.
+     */
+    this._resolveExpectedOrigin = function() {
+      if (document.referrer) {
+        try {
+          return new URL(document.referrer).origin;
+        } catch (_) {}
+      }
+      if (window.location.ancestorOrigins && window.location.ancestorOrigins[0]) {
+        return window.location.ancestorOrigins[0];
+      }
+      return null;
     };
 
-    // Form auto-save & restore helpers
-    this._saveForm = function() {
+    /**
+     * Generates a cryptographically random callId for procedure correlation.
+     */
+    this._generateCallId = function() {
+      if (window.crypto && window.crypto.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        return btoa(String.fromCharCode.apply(null, bytes));
+      }
+      return "call_" + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+    };
+
+    // =========================================================================
+    // 4. FORM STATE PERSISTENCE (SCOPED DRAFTS)
+    // =========================================================================
+
+    /**
+     * Computes a draft storage key scoped to the specific activity being viewed.
+     * CRITICAL: Scoping prevents notes from Activity A leaking into Activity B!
+     */
+    this._getDraftKey = function() {
+      const aid = this.openParams?.activeAid || this.openParams?.aid || "default";
+      return `${this.tag}_draft_aid_${aid}`;
+    };
+
+    /**
+     * Auto-saves input field values into local draft storage.
+     */
+    this._saveForm = async function() {
+      if (!this.storage) return;
+
       const data = {};
       document.querySelectorAll("input, textarea, select").forEach(el => {
-        if (el.id && !["SubmitBtn", "CancelBtn", "BarcodeResult", "LocationResult"].includes(el.id)) {
+        // Exclude system buttons and read-only procedure output displays from draft persistence
+        if (el.id && !["SubmitBtn", "CancelBtn", "DownloadZipBtn", "BarcodeResult", "LocationResult"].includes(el.id)) {
           data[el.id] = el.value;
         }
       });
-      localStorage.setItem(`${this.tag}_formstate`, JSON.stringify(data));
+
+      const key = this._getDraftKey();
+      await this.storage.setValue(key, JSON.stringify(data));
     };
 
-    this._restoreForm = function() {
+    /**
+     * Restores auto-saved draft values for the currently opened activity.
+     */
+    this._restoreForm = async function() {
+      if (!this.storage) return;
+
       try {
-        const data = JSON.parse(localStorage.getItem(`${this.tag}_formstate`));
-        if (data) {
+        const key = this._getDraftKey();
+        const savedStr = await this.storage.getValue(key);
+        if (!savedStr) return;
+
+        const data = JSON.parse(savedStr);
+        if (data && typeof data === "object") {
           Object.keys(data).forEach(id => {
             const el = document.getElementById(id);
             if (el) el.value = data[id];
           });
         }
-      } catch (e) {}
+      } catch (err) {
+        console.warn("[OFS Storage] Error restoring draft:", err.message);
+      }
     };
 
-    // Render User Interface
+    /**
+     * Clears the draft for the current activity after a successful submission.
+     */
+    this._clearDraft = async function() {
+      if (!this.storage) return;
+      const key = this._getDraftKey();
+      await this.storage.removeValue(key);
+    };
+
+    // =========================================================================
+    // 5. USER INTERFACE & SUBMISSION
+    // =========================================================================
+
+    /**
+     * Registers static event listeners (Submit, Cancel, Input Auto-Save) ONCE.
+     */
+    this._setupStaticListeners = function() {
+      // Auto-save draft whenever user types into an input/textarea
+      document.addEventListener("input", () => this._saveForm());
+
+      // Submit Button: Packages form fields into OFS "close" action and exits
+      const submitBtn = document.getElementById("SubmitBtn");
+      if (submitBtn) {
+        submitBtn.addEventListener("click", () => this._handleSubmit());
+      }
+
+      // Close Button: Closes the plugin without making any property changes
+      const cancelBtn = document.getElementById("CancelBtn");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => {
+          this._sendPostMessage({
+            apiVersion: 1,
+            method: "close",
+            backScreen: "default"
+          });
+        });
+      }
+    };
+
+    /**
+     * Handles form submission to OFS Core.
+     * Prevents duplicate clicks, packages properties, clears drafts, and sends "close".
+     */
+    this._handleSubmit = async function() {
+      if (this._isSubmitting) return; // Prevent duplicate submissions
+      this._isSubmitting = true;
+
+      const submitBtn = document.getElementById("SubmitBtn");
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting...";
+      }
+
+      this._setLoading(true);
+
+      // Collect form fields to update on the OFS entity
+      const propertiesToUpdate = {};
+      document.querySelectorAll("input, textarea, select").forEach(input => {
+        if (input.id && !["SubmitBtn", "CancelBtn", "DownloadZipBtn", "BarcodeResult", "LocationResult"].includes(input.id)) {
+          // Map input element ID to uppercase OFS custom property name
+          propertiesToUpdate[input.id.toUpperCase()] = input.value;
+        }
+      });
+
+      // Clear the local draft now that data is submitted
+      await this._clearDraft();
+
+      // Send the documented OFS "close" message with activity update actions.
+      // NOTE: This example updates an 'activity'. If your plugin runs on an inventory
+      // or resource screen, change entity to 'inventory' or 'resource'.
+      const activeAid = this.openParams?.activeAid || this.openParams?.aid || "";
+
+      this._sendPostMessage({
+        apiVersion: 1,
+        method: "close",
+        backScreen: "default",
+        actions: [
+          {
+            entity: "activity",
+            action: "update",
+            aid: activeAid,
+            properties: propertiesToUpdate
+          }
+        ]
+      });
+    };
+
+    /**
+     * Shows or hides the loading spinner overlay.
+     */
+    this._setLoading = function(isLoading) {
+      const loader = document.getElementById("loader");
+      if (loader) {
+        if (isLoading) {
+          loader.classList.add("loader-show");
+        } else {
+          loader.classList.remove("loader-show");
+        }
+      }
+    };
+
+    /**
+     * Renders dynamic status, application tokens, and hardware controls.
+     * Note: All untrusted values are escaped via escapeHtml() to eliminate XSS.
+     */
     this._renderUI = function() {
       const statusDiv = document.getElementById("status");
       if (!statusDiv) return;
 
-      const appRows = Object.keys(this.applications).map(key => {
+      const appKeys = Object.keys(this.applications);
+      const appRows = appKeys.map(key => {
         const isCached = !!this._cachedTokens[key];
+        const appType = this.applications[key]?.type ? escapeHtml(this.applications[key].type.toUpperCase()) : "OAUTH";
         return `
           <div class="item">
-            <span>${key} (${this.applications[key].type?.toUpperCase()}):</span>
-            <span class="${isCached ? 'ok' : 'warn'}">${isCached ? "🟢 Active" : "🔴 Pending"}</span>
+            <span>${escapeHtml(key)} (${appType}):</span>
+            <span class="${isCached ? 'ok' : 'warn'}">${isCached ? "🟢 Ready" : "🟡 Pending"}</span>
           </div>
         `;
-      }).join("") || '<div class="item"><span>None</span></div>';
+      }).join("") || '<div class="item"><span>None configured</span><span class="warn">None</span></div>';
+
+      const resourceId = escapeHtml(this.openParams?.resourceId || "N/A");
+      const activityId = escapeHtml(this.openParams?.activeAid || this.openParams?.aid || "N/A");
+      const pluginTag = escapeHtml(this.tag);
+      const isOnline = navigator.onLine;
 
       statusDiv.innerHTML = `
         <div class="card">
           <div class="section">
-            <h3>Status</h3>
-            <div class="item"><span>Plugin ID:</span><span>${this.tag}</span></div>
-            <div class="item"><span>Resource:</span><span>${this.openParams?.resourceId || "N/A"}</span></div>
-            <div class="item"><span>Network:</span><span>${navigator.onLine ? "🟢 Online" : "🔴 Offline"}</span></div>
+            <h3>Session Status</h3>
+            <div class="item"><span>Plugin Label:</span><span>${pluginTag}</span></div>
+            <div class="item"><span>Activity ID (aid):</span><span>${activityId}</span></div>
+            <div class="item"><span>Resource ID:</span><span>${resourceId}</span></div>
+            <div class="item"><span>Network:</span><span>${isOnline ? "🟢 Online" : "🔴 Offline"}</span></div>
           </div>
           <div class="section">
-            <h3>Configured Applications</h3>
+            <h3>Configured Applications (Tokens in Memory)</h3>
             ${appRows}
           </div>
           <div class="section">
-            <h3>Device Capabilities</h3>
+            <h3>Native Hardware Capabilities</h3>
             <div class="item" style="gap: 10px; display: flex; margin-bottom: 8px;">
-              <button id="ScanBtn" class="btn btn-primary" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Scan Code</button>
-              <input type="text" id="BarcodeResult" placeholder="Scan Result" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
+              <button id="ScanBtn" class="btn btn-primary" type="button" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Scan Barcode</button>
+              <input type="text" id="BarcodeResult" placeholder="Result will appear here" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
             </div>
             <div class="item" style="gap: 10px; display: flex;">
-              <button id="LocBtn" class="btn btn-primary" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Get Location</button>
+              <button id="LocBtn" class="btn btn-primary" type="button" style="flex: 1; padding: 6px; margin: 0; font-size: 12px;">Get GPS Location</button>
               <input type="text" id="LocationResult" placeholder="Latitude, Longitude" readonly style="flex: 2; margin: 0; padding: 6px; font-size: 12px;">
             </div>
           </div>
         </div>
       `;
 
-      // Scan Button Click
-      document.getElementById("ScanBtn")?.addEventListener("click", async () => {
-        try {
-          const result = await this.scanBarcode();
-          const input = document.getElementById("BarcodeResult");
-          if (input && result) {
-            input.value = result.value || result.text || JSON.stringify(result);
-          }
-        } catch (error) {
-          alert(`Scan failed: ${error.message}`);
-        }
-      });
-
-      // Geolocation Button Click
-      document.getElementById("LocBtn")?.addEventListener("click", async () => {
-        try {
-          const result = await this.getLocation();
-          const input = document.getElementById("LocationResult");
-          if (input && result) {
-            input.value = `${result.latitude.toFixed(6)}, ${result.longitude.toFixed(6)} (±${Math.round(result.accuracy)}m)`;
-          }
-        } catch (error) {
-          alert(`Location failed: ${error.message}`);
-        }
-      });
-
-      // Submit: Update OFS and Close
-      document.getElementById("SubmitBtn")?.addEventListener("click", () => {
-        const propertiesToUpdate = {};
-        document.querySelectorAll("input, textarea, select").forEach(input => {
-          if (input.id && !["SubmitBtn", "CancelBtn", "BarcodeResult", "LocationResult"].includes(input.id)) {
-            propertiesToUpdate[input.id.toUpperCase()] = input.value;
+      // Wire up dynamic hardware buttons created inside statusDiv
+      const scanBtn = document.getElementById("ScanBtn");
+      if (scanBtn) {
+        scanBtn.addEventListener("click", async () => {
+          this._setLoading(true);
+          try {
+            const result = await this.scanBarcode();
+            const input = document.getElementById("BarcodeResult");
+            if (input && result) {
+              input.value = result.text || result.value || JSON.stringify(result);
+              this.showToast("Barcode scanned successfully", "success");
+            }
+          } catch (error) {
+            this.showToast(`Scan failed: ${error.message}`, "error");
+          } finally {
+            this._setLoading(false);
           }
         });
+      }
 
-        this._sendPostMessage({
-          apiVersion: 1,
-          method: "close",
-          backScreen: "default",
-          actions: [{
-            entity: "activity",
-            action: "update",
-            aid: this.openParams?.activeAid || this.openParams?.aid || "",
-            properties: propertiesToUpdate
-          }]
+      const locBtn = document.getElementById("LocBtn");
+      if (locBtn) {
+        locBtn.addEventListener("click", async () => {
+          this._setLoading(true);
+          try {
+            const result = await this.getLocation();
+            const input = document.getElementById("LocationResult");
+            if (input && result) {
+              input.value = `${result.latitude.toFixed(6)}, ${result.longitude.toFixed(6)} (±${Math.round(result.accuracy)}m)`;
+              this.showToast("Location retrieved successfully", "success");
+            }
+          } catch (error) {
+            this.showToast(`Location failed: ${error.message}`, "error");
+          } finally {
+            this._setLoading(false);
+          }
         });
-      });
-
-      // Cancel: Close without saving
-      document.getElementById("CancelBtn")?.addEventListener("click", () => {
-        this._sendPostMessage({
-          apiVersion: 1,
-          method: "close",
-          backScreen: "default"
-        });
-      });
+      }
     };
 
-    // UI Toast Notification Helper
+    /**
+     * UI Toast Notification Helper using Redwood design tokens.
+     */
     this.showToast = function(message, type = "info") {
       const toast = document.createElement("div");
-      toast.className = `toast toast-${type}`;
+      toast.className = `toast toast-${escapeHtml(type)}`;
       toast.textContent = message;
       document.body.appendChild(toast);
+
       setTimeout(() => toast.classList.add("show"), 10);
       setTimeout(() => {
         toast.classList.remove("show");
         setTimeout(() => toast.remove(), 300);
-      }, 3000);
+      }, 3500);
     };
   };
 
-  window.addEventListener("load", function() {
-    const plugin = new window.OfscPlugin();
-    plugin.init("TEST_HELLO_OFSC");
-  });
+  // Support Node.js test environment if module is defined
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = window.OfscPlugin;
+  }
+
+  // Automatic browser bootstrap on page load
+  if (typeof window !== "undefined") {
+    window.addEventListener("load", function() {
+      // In production, instantiate your plugin with the exact label configured in OFS
+      const plugin = new window.OfscPlugin();
+      plugin.init("TEST_HELLO_OFSC");
+      window.currentPlugin = plugin; // Exposed for debugging in browser DevTools
+    });
+  }
 })();
+

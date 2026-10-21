@@ -7,6 +7,12 @@
 ehthumbs.db
 Thumbs.db
 
+# Build Artifacts & Tests
+plugin.zip
+node_modules/
+test/
+
+
 # IDEs/Editors
 .vscode/
 .idea/
@@ -15,3 +21,5 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+
