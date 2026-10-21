@@ -7,9 +7,8 @@
 ehthumbs.db
 Thumbs.db
 
-# Dependencies & Tests
+# Dependencies
 node_modules/
-test/
 
 
 # IDEs/Editors

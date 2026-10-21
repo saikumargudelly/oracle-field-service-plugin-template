@@ -67,7 +67,8 @@
       this.storage = window.OfscStorage || window.OFSC_TS_STORAGE_1;
 
       // Determine expected OFS origin from document.referrer or window.location.ancestorOrigins
-      this._targetOrigin = this._resolveExpectedOrigin();
+      const expectedOrigin = this._resolveExpectedOrigin();
+      this._targetOrigin = this._isTrustedOrigin(expectedOrigin) ? expectedOrigin : null;
 
       // Register postMessage listener for messages from OFS Core
       window.addEventListener("message", this._messageListener.bind(this), false);
@@ -101,14 +102,18 @@
      * Validates message structure, origin, and routes to appropriate handler.
      */
     this._messageListener = async function(event) {
-      // Security Check: Verify that the message came from the expected OFS origin
-      if (this._targetOrigin && event.origin !== this._targetOrigin) {
-        console.warn(`[OFS Security Warning] Ignored message from unauthorized origin: ${event.origin}`);
-        return;
-      }
-
-      // If targetOrigin was not set via referrer (e.g. mobile webview or mock), lock onto first valid message
-      if (!this._targetOrigin && event.origin) {
+      // Security Check: Verify that the message came from a trusted OFS origin
+      if (this._targetOrigin) {
+        if (event.origin !== this._targetOrigin) {
+          console.warn(`[OFS Security Warning] Blocked message from unauthorized origin: ${event.origin}`);
+          return;
+        }
+      } else {
+        // If targetOrigin was not available at init (e.g. strict webview), strictly verify domain before adopting
+        if (!this._isTrustedOrigin(event.origin)) {
+          console.error(`[OFS Security Error] Rejected message from untrusted origin: ${event.origin}`);
+          return;
+        }
         this._targetOrigin = event.origin;
       }
 
@@ -261,11 +266,19 @@
     /**
      * Demonstrates an authenticated REST API call using the retrieved OAuth Bearer token.
      * 
-     * EDUCATIONAL NOTE:
-     * - callProcedure('getAccessToken'): RPC to the parent OFS app to get credentials.
-     * - callRestApi(...): Direct HTTP request from the plugin to OFS Core REST API or external systems.
+     * IMPORTANT ARCHITECTURAL & CORS DEPLOYMENT NOTE:
+     * - Plugin Procedures (callProcedure): Run over postMessage; NOT subject to browser CORS.
+     * - REST API Calls (fetch): Direct HTTP requests; strictly enforced by browser Same-Origin Policy (CORS).
+     * 
+     * Supported Deployment & CORS Configurations:
+     * 1. Hosted Plugin Archive (.zip): Uploaded directly to OFS Configuration -> Forms & Plugins.
+     *    Runs under the OFS host context, enabling direct calls to instance endpoints (e.g. /rest/ofscCore/v1/...).
+     * 2. Externally Hosted Plugins (Standalone CDN/Server): The browser blocks direct fetch() to OFSC
+     *    unless the OFSC instance enables CORS for your domain in Configuration -> Applications, or requests
+     *    are routed through an integration gateway (e.g. Oracle Integration Cloud - OIC) providing CORS headers.
+     *    Client-side JavaScript CANNOT bypass missing server CORS headers.
      *
-     * @param {string} endpointUrl - Target REST URL (e.g. /rest/ofscCore/v1/activities/123)
+     * @param {string} endpointUrl - Target REST URL (e.g. https://<instance>.fs.ocs.oraclecloud.com/rest/ofscCore/v1/activities/123)
      * @param {string} appKey - The application key configured in OFS
      * @param {Object} [options={}] - Fetch options (method, headers, body)
      * @returns {Promise<Object>} JSON response from the REST endpoint
@@ -390,9 +403,16 @@
      * Enforces targetOrigin security to prevent privileged data leaks.
      */
     this._sendPostMessage = function(data) {
-      const targetOrigin = this._targetOrigin || "*";
+      const isDiscovery = data && data.method === "ready";
+      const targetOrigin = this._targetOrigin || (isDiscovery ? "*" : null);
+
+      if (!targetOrigin) {
+        console.error(`[OFS Security] Blocked privileged message dispatch (${data?.method || "unknown"}): parent origin is unverified.`);
+        return;
+      }
+
       if (targetOrigin === "*") {
-        console.warn("[OFS Security] Sending postMessage with wildcard '*' origin. Provide document.referrer or configure host origin.");
+        console.warn("[OFS Security] Initial 'ready' handshake sent with wildcard '*' origin. Target origin will lock upon first verified host message.");
       }
 
       if (window.parent && window.parent !== window) {
@@ -415,6 +435,37 @@
         return window.location.ancestorOrigins[0];
       }
       return null;
+    };
+
+    /**
+     * Validates if an origin belongs to Oracle Cloud or local development environments.
+     * @param {string} origin - Origin URL (e.g. https://instance.etadirect.com)
+     * @returns {boolean} True if origin is trusted
+     */
+    this._isTrustedOrigin = function(origin) {
+      if (!origin || typeof origin !== "string") return false;
+      try {
+        const parsed = new URL(origin);
+        const host = parsed.hostname.toLowerCase();
+
+        // 1. Oracle Cloud domains (*.etadirect.com, *.oraclecloud.com, *.oracle.com)
+        if (host.endsWith(".etadirect.com") ||
+            host.endsWith(".oraclecloud.com") ||
+            host.endsWith(".oracle.com")) {
+          return true;
+        }
+
+        // 2. Local development environments
+        if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+          return true;
+        }
+
+        // 3. Same-origin (e.g. plugin archive hosted directly in OFSC)
+        if (window.location && window.location.origin && origin === window.location.origin) {
+          return true;
+        }
+      } catch (_) {}
+      return false;
     };
 
     /**

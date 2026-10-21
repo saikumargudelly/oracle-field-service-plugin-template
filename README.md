@@ -92,11 +92,12 @@ sequenceDiagram
 
 ## 🔒 Enterprise Engineering Standards
 
-1. **Strict Message Origin Validation**: Enforces parent window origin verification using `document.referrer` and `window.location.ancestorOrigins`. Eliminates wildcard target origins for privileged data transfers.
+1. **Strict Message Origin Validation**: Enforces parent window origin verification using `document.referrer` and `window.location.ancestorOrigins` against trusted Oracle Cloud domains (`*.etadirect.com`, `*.oraclecloud.com`, `*.oracle.com`) and local development origins. Privileged messages (`callProcedure`, `close`) are actively blocked if the host origin is unverified.
 2. **XSS Protection**: All incoming parameters (`aid`, `resourceId`, application metadata) are sanitized via HTML entity encoding before rendering into the DOM.
 3. **In-Memory Token Lifecycle**: OAuth tokens retrieved via `getAccessToken` are retained exclusively in volatile memory (`this._cachedTokens`). Tokens are never written to persistent browser storage or written to log files.
 4. **Scoped Form Drafts**: Drafts are partitioned by unique Activity ID (`${tag}_draft_aid_${aid}`), preventing draft leakage across customer assignments. Drafts are automatically purged on submission.
 5. **Procedure Timeouts**: Remote procedure calls (`callProcedure`) feature a 15-second safety timeout and rejection handling to prevent interface freezing.
+6. **REST API & CORS Deployment Requirements**: Direct `fetch()` requests from the plugin iframe to OFS Core REST APIs require server-side CORS headers. For hosted plugin archives (`.zip`), requests run within the host domain context. For external standalone hosting, CORS must be configured in OFS (Configuration ➡️ Applications) or routed through Oracle Integration Cloud (OIC) or a reverse proxy.
 
 ---
 
@@ -108,7 +109,7 @@ Before uploading to an OFSC instance, you can use these optional offline utiliti
 ```bash
 npm test
 ```
-Runs the built-in Node.js native test suite (`node:test`) to verify message parsing, XSS sanitization, origin checking, and activity draft scoping without external dependencies.
+Runs the 16-test Node.js native test suite (`node:test`) to verify message parsing, XSS sanitization, origin checking, and activity draft scoping without external dependencies.
 
 ### Local Mock Simulator
 ```bash
