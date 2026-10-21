@@ -7,8 +7,7 @@
 ehthumbs.db
 Thumbs.db
 
-# Build Artifacts & Tests
-plugin.zip
+# Dependencies & Tests
 node_modules/
 test/
 

@@ -14,9 +14,12 @@ An enterprise-ready, framework-free reference template for developing custom ext
 ## ⚡ Quick Start
 
 ### 1. Download Deployable Plugin Archive
-You can download the pre-packaged archive directly to your local **Downloads** folder:
-- **Direct Download**: Click [Download plugin.zip](plugin.zip) *(or click "📦 Download ZIP" in [`index.html`](index.html) / [`mock-host.html`](mock-host.html))*.
-- **Generate Archive**: Run `npm run package` (or `node package.js`) to generate `plugin.zip`.
+Download the pre-packaged archive directly to your local **Downloads** folder:
+
+[![Download Plugin ZIP](https://img.shields.io/badge/📦%20Download-plugin.zip-c15c3d?style=for-the-badge)](https://github.com/saikumargudelly/oracle-field-service-plugin-template/raw/main/plugin.zip)
+
+- **Direct Download**: [**Download plugin.zip**](https://github.com/saikumargudelly/oracle-field-service-plugin-template/raw/main/plugin.zip)
+- **Local Generation**: Run `npm run package` (or `node package.js`) to rebuild `plugin.zip` from source.
 
 ### 2. Local Simulation & Verification
 Test the entire plugin lifecycle locally without an active Oracle Cloud tenant:
