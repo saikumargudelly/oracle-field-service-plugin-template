@@ -11,30 +11,37 @@ An enterprise-ready, framework-free reference template for developing custom ext
 
 ---
 
-## ⚡ Quick Start
+## 🚀 Quick Start: Deploy to Your OFSC Instance
 
-### 1. Download Plugin Archive
-Download the pre-packaged archive ready for OFS **Configuration ➡️ Forms & Plugins**:
+> [!IMPORTANT]
+> **Dedicated OFSC Instance Required**: Full end-to-end functionality—including native camera barcode scanning, host OAuth token generation, and activity updates—requires deploying the plugin archive directly into an Oracle Field Service environment.
+
+### 1. Download or Build the Plugin Archive
+Download the pre-packaged archive ready for upload:
 
 [![Download Plugin ZIP](https://img.shields.io/badge/📦%20Download-plugin.zip-c15c3d?style=for-the-badge)](https://github.com/saikumargudelly/oracle-field-service-plugin-template/raw/main/plugin.zip)
 
-*(Or run `npm run package` to rebuild `plugin.zip` from source)*
+*(Or run `npm run package` locally to rebuild `plugin.zip` from source)*
 
-### 2. Local Simulation & Verification
-Test the entire plugin lifecycle locally without an active Oracle Cloud tenant:
-```bash
-# Start a local static server
-python3 -m http.server 8080
+### 2. Upload to OFSC Administration
+1. Log into your Oracle Field Service environment as an administrator.
+2. Navigate to **Configuration** ➡️ **Forms & Plugins**.
+3. Select **Add Plugin** ➡️ **Plugin Archive** ➡️ Upload `plugin.zip`.
+4. Configure the plugin properties:
+   - **Name**: `Hello OFS Demo`
+   - **Label**: `TEST_HELLO_OFSC` *(must match the tag passed in `plugin.init()`)*
+   - **Type**: Standard Plugin (or Modal)
+   - **Allowed Procedures**: Enable **`scanBarcode`**
+   - **Applications**: Select your configured OAuth application(s)
+5. Click **Save**.
 
-# Open the interactive mock host in your browser:
-# http://localhost:8080/mock-host.html
-```
+### 3. Bind to Screen Layout
+1. Navigate to **Configuration** ➡️ **User Types** ➡️ **Screen Configuration**.
+2. Select your target layout (e.g. *Activity Details* or *Edit Activity*).
+3. Add an action button targeting `TEST_HELLO_OFSC` and save the configuration.
 
-### 3. Run Automated Unit Tests
-Verify protocol handling, security sanitization, and storage resilience:
-```bash
-npm test
-```
+### 4. Test Live in OFSC Mobility
+Open any assigned activity in the OFSC Mobility application to launch and test the plugin live with real context parameters (`aid`, `resourceId`).
 
 ---
 
@@ -93,24 +100,22 @@ sequenceDiagram
 
 ---
 
-## 🚀 Deployment Guide
+## 🛠️ Offline Developer Utilities (Optional)
 
-1. **Package the Archive**:
-   ```bash
-   npm run package
-   ```
-   *(Verifies `index.html` is packaged at the archive root of `plugin.zip`)*.
+Before uploading to an OFSC instance, you can use these optional offline utilities for preliminary syntax and protocol verification:
 
-2. **Register in OFS Administration**:
-   - Navigate to **Configuration** ➡️ **Forms & Plugins**.
-   - Select **Add Plugin** ➡️ **Plugin Archive** ➡️ Upload `plugin.zip`.
-   - **Label**: `TEST_HELLO_OFSC` *(must match label configured in `plugin.init()`)*.
-   - **Allowed Procedures**: Select **`scanBarcode`** (and native procedures as required).
-   - **Applications**: Associate target OAuth applications for token retrieval.
+### Automated Unit Tests
+```bash
+npm test
+```
+Runs the built-in Node.js native test suite (`node:test`) to verify message parsing, XSS sanitization, origin checking, and activity draft scoping without external dependencies.
 
-3. **Bind to Screen Layout**:
-   - Navigate to **Configuration** ➡️ **User Types** ➡️ **Screen Configuration**.
-   - Open target layout (e.g. *Activity Details*), insert an Action button targeting `TEST_HELLO_OFSC`.
+### Local Mock Simulator
+```bash
+python3 -m http.server 8080
+# Open http://localhost:8080/mock-host.html
+```
+Launches a standalone local browser simulator (`mock-host.html`) that emulates parent window handshake events (`ready`, `init`, `open`, `close`) for offline UI and layout inspection.
 
 ---
 
