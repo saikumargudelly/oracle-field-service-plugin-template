@@ -696,7 +696,7 @@
             const result = await this.scanBarcode();
             const input = document.getElementById("BarcodeResult");
             if (input && result) {
-              input.value = result.text || result.value || JSON.stringify(result);
+              input.value = result.code || result.text || result.value || (typeof result === "string" ? result : JSON.stringify(result));
               this.showToast("Barcode scanned successfully", "success");
             }
           } catch (error) {
