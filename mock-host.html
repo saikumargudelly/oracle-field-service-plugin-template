@@ -69,6 +69,10 @@
         <div class="btn-row">
           <button id="sendOpenBtn" type="button">Send "open" (Activity #1001)</button>
           <button id="sendOpenAltBtn" class="secondary" type="button">Send "open" (Activity #2002)</button>
+          <select id="barcodeSimMode" style="padding: 6px 10px; font-size: 12px; border-radius: 4px; border: 1px solid #444; background: #252526; color: #fff;" title="Configure simulated response for scanBarcode">
+            <option value="success">Barcode: Success ("PT9012308")</option>
+            <option value="cancelled">Barcode: Cancelled by user</option>
+          </select>
           <a href="plugin.zip" download="plugin.zip" class="btn-download-link" id="downloadZipBtn" title="Download plugin.zip to your Downloads folder">📦 Download plugin.zip</a>
           <button id="clearLogBtn" class="secondary" type="button">Clear Log</button>
         </div>
@@ -144,15 +148,17 @@
             log("TO_PLUGIN", "callProcedureResult (" + data.procedure + ")", resultMsg);
             iframe.contentWindow.postMessage(JSON.stringify(resultMsg), "*");
           } else if (data.procedure === "scanBarcode") {
+            const isCancelled = document.getElementById("barcodeSimMode")?.value === "cancelled";
             const resultMsg = {
               apiVersion: 1,
               method: "callProcedureResult",
               callId: data.callId,
-              resultData: {
-                code: "OFS-EQUIP-998877",
-                type: "QR_CODE",
+              resultData: isCancelled ? {
+                cancelled: true
+              } : {
+                text: "PT9012308",
                 format: "QR_CODE",
-                text: "OFS-EQUIP-998877"
+                cancelled: false
               }
             };
             log("TO_PLUGIN", "callProcedureResult (" + data.procedure + ")", resultMsg);

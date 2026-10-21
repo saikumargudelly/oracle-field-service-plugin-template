@@ -99,10 +99,18 @@
 
     /**
      * Central message listener for incoming window postMessage events.
-     * Validates message structure, origin, and routes to appropriate handler.
+     * Validates message structure, source window, origin, and routes to appropriate handler.
      */
     this._messageListener = async function(event) {
-      // Security Check: Verify that the message came from a trusted OFS origin
+      // 1. Frame Source Security Check: When embedded in an iframe, verify the message originates from window.parent
+      if (window.parent && window.parent !== window) {
+        if (!event.source || event.source !== window.parent) {
+          console.warn("[OFS Security Warning] Blocked message from unexpected source window (not window.parent).");
+          return;
+        }
+      }
+
+      // 2. Origin Security Check: Verify that the message came from a trusted OFS origin
       if (this._targetOrigin) {
         if (event.origin !== this._targetOrigin) {
           console.warn(`[OFS Security Warning] Blocked message from unauthorized origin: ${event.origin}`);
@@ -721,9 +729,21 @@
           try {
             const result = await this.scanBarcode();
             const input = document.getElementById("BarcodeResult");
-            if (input && result) {
-              input.value = result.code || result.text || result.value || (typeof result === "string" ? result : JSON.stringify(result));
-              this.showToast("Barcode scanned successfully", "success");
+
+            // Handle cancellation per Oracle documentation (resultData.cancelled === true)
+            if (result && (result.cancelled === true || result.cancelled === "true")) {
+              this.showToast("Barcode scan cancelled", "info");
+              return;
+            }
+
+            // Populate input from result.text (official Oracle documented field)
+            if (result && typeof result.text === "string" && result.text.trim()) {
+              if (input) {
+                input.value = result.text.trim();
+              }
+              this.showToast(`Scanned: ${result.text.trim()}`, "success");
+            } else {
+              this.showToast("No barcode text detected in response", "warning");
             }
           } catch (error) {
             this.showToast(`Scan failed: ${error.message}`, "error");

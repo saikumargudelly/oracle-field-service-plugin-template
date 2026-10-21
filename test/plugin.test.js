@@ -20,6 +20,9 @@ function createMockEnvironment(options = {}) {
   }
 
   function dispatchEvent(type, event) {
+    if (type === "message" && event && event.source === undefined) {
+      event.source = mockWindow.parent;
+    }
     const handlers = eventListeners.get(type) || [];
     for (const fn of handlers) {
       fn(event);
@@ -51,7 +54,7 @@ function createMockEnvironment(options = {}) {
     addEventListener,
     removeEventListener: () => {},
     dispatchEvent,
-    parent: mockParent,
+    parent: null,
     localStorage: mockLocalStorage,
     location: {
       origin: "http://localhost:8080",
@@ -64,6 +67,7 @@ function createMockEnvironment(options = {}) {
       }
     }
   };
+  mockWindow.parent = options.standalone ? mockWindow : (options.parent !== undefined ? options.parent : mockParent);
 
   const mockDocument = {
     referrer: options.referrer !== undefined ? options.referrer : "https://test-tenant.etadirect.com/screen.html",
@@ -85,7 +89,8 @@ function createMockEnvironment(options = {}) {
           textContent: "",
           innerHTML: "",
           classList: { add: () => {}, remove: () => {} },
-          addEventListener: (type, fn) => addEventListener(`${id}_${type}`, fn)
+          addEventListener: (type, fn) => addEventListener(`${id}_${type}`, fn),
+          click: () => dispatchEvent(`${id}_click`, { type: "click" })
         });
       }
       return elements.get(id);
@@ -497,6 +502,117 @@ test("Security: _isTrustedOrigin validates strict domain boundaries, protocol, a
   assert.equal(plugin._isTrustedOrigin(null), false, "Must reject null");
   assert.equal(plugin._isTrustedOrigin(""), false, "Must reject empty string");
   assert.equal(plugin._isTrustedOrigin("not-a-url"), false, "Must reject invalid URL");
+});
+
+test("Security: Validates event.source originates from window.parent and rejects wrong-window messages", async () => {
+  const { plugin, env } = setupPlugin();
+  plugin.init("TEST_PLUGIN");
+
+  let receivedInit = false;
+  plugin._handleInit = async () => { receivedInit = true; };
+
+  // 1. Message from an unexpected/wrong window (e.g. child iframe, popup, sibling)
+  const wrongWindow = { postMessage: () => {} };
+  await env.window.dispatchEvent("message", {
+    origin: "https://test-tenant.etadirect.com",
+    source: wrongWindow,
+    data: JSON.stringify({ method: "init" })
+  });
+  assert.equal(receivedInit, false, "Must reject message when event.source is not window.parent");
+
+  // 2. Message from valid window.parent
+  await env.window.dispatchEvent("message", {
+    origin: "https://test-tenant.etadirect.com",
+    source: env.window.parent,
+    data: JSON.stringify({ method: "init" })
+  });
+  assert.equal(receivedInit, true, "Must accept message when event.source matches window.parent");
+});
+
+test("Security: Allows standalone mode execution when window.parent is self", async () => {
+  const { plugin, env } = setupPlugin({ standalone: true, referrer: "http://localhost:8080" });
+  plugin.init("TEST_PLUGIN");
+
+  let receivedOpen = false;
+  plugin._handleOpen = async () => { receivedOpen = true; };
+
+  // In standalone mode (window.parent === window), message from self is accepted
+  await env.window.dispatchEvent("message", {
+    origin: "http://localhost:8080",
+    source: env.window,
+    data: JSON.stringify({ method: "open", openParams: { aid: "123" } })
+  });
+  assert.equal(receivedOpen, true, "Must process messages in standalone mode");
+});
+
+test("Hardware: scanBarcode handles successful scan and populates input from resultData.text", async () => {
+  const { plugin, env } = setupPlugin();
+  plugin.init("TEST_PLUGIN");
+  plugin.allowedProcedures = { scanBarcode: true };
+
+  const input = env.document.getElementById("BarcodeResult");
+  input.value = "INITIAL_VAL";
+
+  plugin._renderUI();
+  const scanBtn = env.document.getElementById("ScanBtn");
+  assert.ok(scanBtn, "ScanBtn element should exist");
+
+  // Simulate procedure response with official Oracle documented payload
+  plugin.scanBarcode = async () => {
+    return {
+      text: "PT9012308",
+      format: "QR_CODE",
+      cancelled: false
+    };
+  };
+
+  await scanBtn.click();
+  assert.equal(input.value, "PT9012308", "Input should be populated strictly with resultData.text");
+});
+
+test("Hardware: scanBarcode handles cancelled scan without modifying input value", async () => {
+  const { plugin, env } = setupPlugin();
+  plugin.init("TEST_PLUGIN");
+  plugin.allowedProcedures = { scanBarcode: true };
+
+  const input = env.document.getElementById("BarcodeResult");
+  input.value = "EXISTING_VAL";
+
+  plugin._renderUI();
+  const scanBtn = env.document.getElementById("ScanBtn");
+
+  // Simulate cancellation response per Oracle documentation (cancelled: true)
+  plugin.scanBarcode = async () => {
+    return {
+      cancelled: true
+    };
+  };
+
+  await scanBtn.click();
+  assert.equal(input.value, "EXISTING_VAL", "Input must remain unchanged when user cancels scanning");
+  assert.ok(!input.value.includes("cancelled"), "Must not serialize cancellation object into input");
+});
+
+test("Hardware: scanBarcode handles malformed or missing response data gracefully", async () => {
+  const { plugin, env } = setupPlugin();
+  plugin.init("TEST_PLUGIN");
+  plugin.allowedProcedures = { scanBarcode: true };
+
+  const input = env.document.getElementById("BarcodeResult");
+  input.value = "EXISTING_VAL";
+
+  plugin._renderUI();
+  const scanBtn = env.document.getElementById("ScanBtn");
+
+  // 1. Empty/null result
+  plugin.scanBarcode = async () => null;
+  await scanBtn.click();
+  assert.equal(input.value, "EXISTING_VAL", "Input must remain unchanged on null result");
+
+  // 2. Object with no text or empty text
+  plugin.scanBarcode = async () => ({ format: "QR_CODE" });
+  await scanBtn.click();
+  assert.equal(input.value, "EXISTING_VAL", "Input must remain unchanged when text is missing");
 });
 
 

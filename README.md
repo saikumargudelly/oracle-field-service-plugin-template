@@ -68,7 +68,7 @@ sequenceDiagram
     P->>H: postMessage({ method: "callProcedure", procedure: "getAccessToken", params: { applicationKey: "ofs_api" } })
     H->>P: postMessage({ method: "callProcedureResult", resultData: { token: "..." } })
     P->>H: postMessage({ method: "callProcedure", procedure: "scanBarcode" })
-    H->>P: postMessage({ method: "callProcedureResult", resultData: { format: "QR_CODE", text: "..." } })
+    H->>P: postMessage({ method: "callProcedureResult", resultData: { text: "PT9012308", format: "QR_CODE", cancelled: false } })
 
     Note over P,H: 4. Submission & Exit
     P->>P: Clear activity draft
@@ -85,19 +85,21 @@ sequenceDiagram
 | [`plugin.js`](plugin.js) | Central controller managing lifecycle events, origin checks, procedure RPC, token cache, and submissions. |
 | [`localStorage.js`](localStorage.js) | Storage layer with automated in-memory fallback for third-party cookie/partitioned storage environments. |
 | [`style.css`](style.css) | Oracle Redwood styling system tokens (`--primary: #c15c3d`, Canvas Cream, Charcoal). |
-| [`mock-host.html`](mock-host.html) | Local development harness simulating the OFS parent window and live messaging inspector. |
+| [`mock-host.html`](mock-host.html) | Local development harness simulating the OFS parent window, live message inspector, and barcode cancel toggles. |
 | [`package.js`](package.js) | Zero-dependency build utility generating the root-level `plugin.zip` for OFS administration upload. |
 
 ---
 
 ## 🔒 Enterprise Engineering Standards
 
-1. **Strict Message Origin Validation & Discovery Handshake**: Enforces HTTPS protocol and strict hostname boundaries against trusted Oracle Cloud domains (`*.etadirect.com`, `*.oraclecloud.com`, `*.oracle.com`) and local development loopbacks, rejecting spoofed lookalikes (e.g. `oracle.com.attacker.example`). The non-sensitive initial `ready` handshake falls back to `*` only if `document.referrer` is stripped by browser privacy policies; upon the first verified incoming host message, the target origin is locked. All privileged messages (`callProcedure`, `initEnd`, `close`) strictly require a verified target origin and are actively blocked otherwise.
-2. **XSS Protection**: All incoming parameters (`aid`, `resourceId`, application metadata) are sanitized via HTML entity encoding before rendering into the DOM.
-3. **In-Memory Token Lifecycle**: OAuth tokens retrieved via `getAccessToken` are retained exclusively in volatile memory (`this._cachedTokens`). Tokens are never written to persistent browser storage or written to log files.
-4. **Scoped Form Drafts**: Drafts are partitioned by unique Activity ID (`${tag}_draft_aid_${aid}`), preventing draft leakage across customer assignments. Drafts are automatically purged on submission.
-5. **Procedure Timeouts**: Remote procedure calls (`callProcedure`) feature a 15-second safety timeout and rejection handling to prevent interface freezing.
-6. **REST API & CORS Architecture**: Even when uploaded as a hosted plugin archive (`.zip`), OFS executes plugins inside an isolated, sandboxed `<iframe>`. Browser Same-Origin Policy strictly enforces CORS on direct `fetch()` calls to OFS Core REST endpoints. To execute direct REST calls, the plugin's origin must be allowed under *Configuration ➡️ Applications* in OFS, or routed via Oracle Integration Cloud (OIC) / API gateway. For standard entity updates (activities, inventory), plugins should use native OFS `close` action payloads, which run over `postMessage` RPC and are never blocked by CORS.
+1. **Message Source & Origin Validation**: When running inside an iframe, the plugin verifies that incoming messages originate strictly from `window.parent`, rejecting rogue messages from unexpected windows, popups, or sibling frames. It also enforces HTTPS protocol and strict hostname boundaries against trusted Oracle Cloud domains (`*.etadirect.com`, `*.oraclecloud.com`, `*.oracle.com`) and local development loopbacks, rejecting lookalike domains (e.g. `oracle.com.attacker.example`).
+2. **Discovery Handshake vs. Privileged Messages**: When the plugin first boots in an iframe, `document.referrer` may be stripped by browser privacy policies before any host message has arrived. The non-sensitive initial `ready` discovery message (containing zero business data) is permitted to fall back to `targetOrigin: "*"` to initiate contact with OFS Core. Immediately upon the first verified incoming host message, the target origin is locked. All privileged messages (`initEnd`, `callProcedure` tokens, `close` entity updates) strictly require a verified target origin and are actively blocked otherwise.
+3. **Documented Barcode Contract**: Implements the official Oracle `scanBarcode` procedure contract. Responses are parsed for `text`, `format`, and `cancelled`. Successful scans populate the form input strictly from `resultData.text`. If a technician cancels the scanner (`resultData.cancelled === true`), the input remains unchanged and a non-intrusive status message is displayed. Malformed responses are handled safely without serializing raw objects into the UI.
+4. **XSS Protection**: All incoming parameters (`aid`, `resourceId`, application metadata) are sanitized via HTML entity encoding before rendering into the DOM.
+5. **In-Memory Token Lifecycle**: OAuth tokens retrieved via `getAccessToken` are retained exclusively in volatile memory (`this._cachedTokens`). Tokens are never written to persistent browser storage or written to log files.
+6. **Scoped Form Drafts**: Drafts are partitioned by unique Activity ID (`${tag}_draft_aid_${aid}`), preventing draft leakage across customer assignments. Drafts are automatically purged on submission.
+7. **Procedure Timeouts**: Remote procedure calls (`callProcedure`) feature a 15-second safety timeout and rejection handling to prevent interface freezing.
+8. **REST API & CORS Architecture**: Even when uploaded as a hosted plugin archive (`.zip`), OFS executes plugins inside an isolated, sandboxed `<iframe>`. Browser Same-Origin Policy strictly enforces CORS on direct `fetch()` calls to OFS Core REST endpoints. To execute direct REST calls, the plugin's origin must be allowed under *Configuration ➡️ Applications* in OFS, or routed via Oracle Integration Cloud (OIC) / API gateway. For standard entity updates (activities, inventory), plugins should use native OFS `close` action payloads, which run over `postMessage` RPC and are never blocked by CORS.
 
 ---
 
@@ -109,7 +111,7 @@ Before uploading to an OFSC instance, you can use these optional offline utiliti
 ```bash
 npm test
 ```
-Runs the 16-test Node.js native test suite (`node:test`) to verify message parsing, XSS sanitization, origin checking, and activity draft scoping without external dependencies.
+Runs the 22-test Node.js native test suite (`node:test`) to verify message parsing, source window validation, XSS sanitization, origin checking, barcode handling, and activity draft scoping without external dependencies.
 
 ### Local Mock Simulator
 ```bash
