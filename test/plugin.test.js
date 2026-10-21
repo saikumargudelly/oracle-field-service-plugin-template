@@ -466,4 +466,37 @@ test("Security: Blocks privileged postMessages when target origin is unverified"
   assert.equal(env.outgoingMessages.length, messagesBefore, "Privileged message must not be dispatched without verified origin");
 });
 
+test("Security: _isTrustedOrigin validates strict domain boundaries, protocol, and rejects spoofing", () => {
+  const { plugin } = setupPlugin();
+  plugin.init("TEST_PLUGIN");
+
+  // Valid Oracle Cloud domains (must be HTTPS)
+  assert.equal(plugin._isTrustedOrigin("https://tenant.etadirect.com"), true, "Should accept valid *.etadirect.com subdomain");
+  assert.equal(plugin._isTrustedOrigin("https://tenant.fs.ocs.oraclecloud.com"), true, "Should accept valid *.oraclecloud.com subdomain");
+  assert.equal(plugin._isTrustedOrigin("https://login.oracle.com"), true, "Should accept valid *.oracle.com subdomain");
+  assert.equal(plugin._isTrustedOrigin("https://oracle.com"), true, "Should accept apex oracle.com");
+  assert.equal(plugin._isTrustedOrigin("https://etadirect.com"), true, "Should accept apex etadirect.com");
+
+  // Valid local development origins
+  assert.equal(plugin._isTrustedOrigin("http://localhost:8080"), true, "Should accept localhost");
+  assert.equal(plugin._isTrustedOrigin("http://127.0.0.1:3000"), true, "Should accept 127.0.0.1");
+
+  // REJECT: Insecure HTTP protocol on Oracle Cloud domains
+  assert.equal(plugin._isTrustedOrigin("http://tenant.etadirect.com"), false, "Must reject non-HTTPS Oracle Cloud origin");
+
+  // REJECT: Trailing domain spoofing (e.g. oracle.com.attacker.example)
+  assert.equal(plugin._isTrustedOrigin("https://oracle.com.attacker.example"), false, "Must reject trailing domain spoof");
+  assert.equal(plugin._isTrustedOrigin("https://etadirect.com.evil.com"), false, "Must reject trailing domain spoof");
+
+  // REJECT: Prefix lookalike spoofing (e.g. attacker-oracle.com)
+  assert.equal(plugin._isTrustedOrigin("https://attacker-oracle.com"), false, "Must reject prefix lookalike");
+  assert.equal(plugin._isTrustedOrigin("https://evil-etadirect.com"), false, "Must reject prefix lookalike");
+  assert.equal(plugin._isTrustedOrigin("https://fakeoraclecloud.com"), false, "Must reject lookalike domain");
+
+  // REJECT: Invalid inputs
+  assert.equal(plugin._isTrustedOrigin(null), false, "Must reject null");
+  assert.equal(plugin._isTrustedOrigin(""), false, "Must reject empty string");
+  assert.equal(plugin._isTrustedOrigin("not-a-url"), false, "Must reject invalid URL");
+});
+
 

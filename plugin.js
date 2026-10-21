@@ -267,16 +267,24 @@
      * Demonstrates an authenticated REST API call using the retrieved OAuth Bearer token.
      * 
      * IMPORTANT ARCHITECTURAL & CORS DEPLOYMENT NOTE:
-     * - Plugin Procedures (callProcedure): Run over postMessage; NOT subject to browser CORS.
-     * - REST API Calls (fetch): Direct HTTP requests; strictly enforced by browser Same-Origin Policy (CORS).
+     * - Plugin Procedures (callProcedure) & Lifecycle (close): Run over postMessage; NOT subject to CORS.
+     *   Updating activities, inventory, or resources is best achieved natively via the 'close' method.
+     * - Direct REST API Calls (fetch): Direct HTTP requests executed in the plugin iframe;
+     *   strictly enforced by browser Cross-Origin Resource Sharing (CORS).
      * 
      * Supported Deployment & CORS Configurations:
-     * 1. Hosted Plugin Archive (.zip): Uploaded directly to OFS Configuration -> Forms & Plugins.
-     *    Runs under the OFS host context, enabling direct calls to instance endpoints (e.g. /rest/ofscCore/v1/...).
-     * 2. Externally Hosted Plugins (Standalone CDN/Server): The browser blocks direct fetch() to OFSC
-     *    unless the OFSC instance enables CORS for your domain in Configuration -> Applications, or requests
-     *    are routed through an integration gateway (e.g. Oracle Integration Cloud - OIC) providing CORS headers.
-     *    Client-side JavaScript CANNOT bypass missing server CORS headers.
+     * 1. Hosted Plugin Archive (.zip): Uploaded to OFS Configuration -> Forms & Plugins.
+     *    OFS executes the archive inside an isolated, sandboxed iframe. Even though hosted on OFS
+     *    infrastructure, the iframe executes under an isolated origin and does NOT automatically
+     *    bypass browser CORS for direct REST calls.
+     * 2. Externally Hosted Plugins (Standalone CDN/Server): Executed from your external web server.
+     * 
+     * For direct fetch() REST calls to succeed under EITHER deployment model:
+     * - The target OFSC instance must have the plugin's origin explicitly allowed in
+     *   Configuration -> Applications (CORS configuration for the registered application), OR
+     * - The requests must be proxied through an integration middleware / API gateway
+     *   (such as Oracle Integration Cloud - OIC) that provides appropriate CORS response headers.
+     * Client-side JavaScript CANNOT bypass missing server CORS headers.
      *
      * @param {string} endpointUrl - Target REST URL (e.g. https://<instance>.fs.ocs.oraclecloud.com/rest/ofscCore/v1/activities/123)
      * @param {string} appKey - The application key configured in OFS
@@ -401,6 +409,15 @@
     /**
      * Sends a postMessage to the parent OFS window.
      * Enforces targetOrigin security to prevent privileged data leaks.
+     *
+     * Note on 'ready' handshake wildcard:
+     * When the plugin first boots in an iframe, document.referrer may be empty or stripped
+     * by strict browser Referrer-Policy headers before any host message has arrived.
+     * Per Oracle OFS Plugin Framework specifications, 'ready' contains zero sensitive data
+     * (only protocol flags) and is the only message permitted to fall back to '*' to initiate
+     * discovery. Once the host responds, the origin is validated against _isTrustedOrigin()
+     * and strictly locked. All privileged dispatches (initEnd, callProcedure, close) require
+     * a verified targetOrigin and are actively blocked otherwise.
      */
     this._sendPostMessage = function(data) {
       const isDiscovery = data && data.method === "ready";
@@ -439,6 +456,9 @@
 
     /**
      * Validates if an origin belongs to Oracle Cloud or local development environments.
+     * Enforces strict hostname boundaries and HTTPS protocol to prevent spoofing
+     * (e.g. rejects 'oracle.com.attacker.example' or 'attacker-oracle.com').
+     *
      * @param {string} origin - Origin URL (e.g. https://instance.etadirect.com)
      * @returns {boolean} True if origin is trusted
      */
@@ -447,22 +467,28 @@
       try {
         const parsed = new URL(origin);
         const host = parsed.hostname.toLowerCase();
+        const protocol = parsed.protocol.toLowerCase();
 
-        // 1. Oracle Cloud domains (*.etadirect.com, *.oraclecloud.com, *.oracle.com)
-        if (host.endsWith(".etadirect.com") ||
-            host.endsWith(".oraclecloud.com") ||
-            host.endsWith(".oracle.com")) {
-          return true;
-        }
-
-        // 2. Local development environments
-        if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
-          return true;
-        }
-
-        // 3. Same-origin (e.g. plugin archive hosted directly in OFSC)
+        // 1. Same-origin (e.g. plugin hosted on the same origin as the parent frame)
         if (window.location && window.location.origin && origin === window.location.origin) {
           return true;
+        }
+
+        // 2. Local development environments (HTTP allowed on localhost/loopback only)
+        if ((protocol === "http:" || protocol === "https:") &&
+            (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]")) {
+          return true;
+        }
+
+        // 3. Oracle Cloud domains: Strictly require HTTPS and match exact domain or subdomains
+        if (protocol === "https:") {
+          const trustedDomains = ["etadirect.com", "oraclecloud.com", "oracle.com"];
+          const isOracleDomain = trustedDomains.some(domain =>
+            host === domain || host.endsWith("." + domain)
+          );
+          if (isOracleDomain) {
+            return true;
+          }
         }
       } catch (_) {}
       return false;
